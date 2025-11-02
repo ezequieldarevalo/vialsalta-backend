@@ -121,8 +121,11 @@ export class RevisionesService {
       );
     }
 
-    // Validar permisos: solo usuarios de la misma cámara o planta
-    if (user.role === UserRole.PLANTA && revision.plantaId !== user.plantaId) {
+    // Validar permisos: solo PLANTA_ADMIN de la misma planta puede asignar oblea
+    if (
+      user.role === UserRole.PLANTA_ADMIN &&
+      revision.plantaId !== user.plantaId
+    ) {
       throw new ForbiddenException(
         'No tiene permisos para asignar obleas a revisiones de otra planta',
       );
@@ -247,7 +250,11 @@ export class RevisionesService {
       .leftJoinAndSelect('revision.usuario', 'usuario');
 
     // Filtrar por cámara a través de la planta
-    if (user.role === UserRole.PLANTA && user.plantaId) {
+    if (
+      (user.role === UserRole.PLANTA_ADMIN ||
+        user.role === UserRole.PLANTA_OPERADOR) &&
+      user.plantaId
+    ) {
       // Si es usuario de planta, solo ver revisiones de su planta
       query.where('revision.plantaId = :plantaId', {
         plantaId: user.plantaId,
@@ -339,7 +346,11 @@ export class RevisionesService {
       .leftJoin('revision.planta', 'planta')
       .where('planta.camaraId = :camaraId', { camaraId: user.camaraId });
 
-    if (user.role === UserRole.PLANTA && user.plantaId) {
+    if (
+      (user.role === UserRole.PLANTA_ADMIN ||
+        user.role === UserRole.PLANTA_OPERADOR) &&
+      user.plantaId
+    ) {
       baseQuery.andWhere('revision.plantaId = :plantaId', {
         plantaId: user.plantaId,
       });

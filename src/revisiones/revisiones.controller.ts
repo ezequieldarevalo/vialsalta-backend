@@ -31,7 +31,7 @@ export class RevisionesController {
    * Solo usuarios PLANTA y MUNICIPIO pueden crear revisiones
    */
   @Post()
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_OPERADOR, UserRole.MUNICIPIO)
   create(@Body() createRevisionDto: CreateRevisionDto, @Req() req: any) {
     return this.revisionesService.create(createRevisionDto, req.user);
   }
@@ -41,7 +41,7 @@ export class RevisionesController {
    * Solo usuarios CAMARA y PLANTA
    */
   @Post(':id/asignar-oblea')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN)
   asignarOblea(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.revisionesService.asignarOblea(id, req.user);
   }
@@ -50,7 +50,12 @@ export class RevisionesController {
    * Obtener estadísticas de revisiones
    */
   @Get('estadisticas')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   getEstadisticas(@Req() req: any) {
     return this.revisionesService.getEstadisticas(req.user);
   }
@@ -59,7 +64,12 @@ export class RevisionesController {
    * Listar todas las revisiones
    */
   @Get()
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   findAll(@Req() req: any) {
     return this.revisionesService.findAll(req.user);
   }
@@ -68,7 +78,12 @@ export class RevisionesController {
    * Obtener una revisión por ID
    */
   @Get(':id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.revisionesService.findOne(id, req.user);
   }
@@ -78,7 +93,7 @@ export class RevisionesController {
    * Solo si no tiene oblea asignada
    */
   @Patch(':id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_OPERADOR, UserRole.MUNICIPIO)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateRevisionDto: UpdateRevisionDto,
@@ -92,7 +107,7 @@ export class RevisionesController {
    * Solo si no tiene oblea asignada
    */
   @Delete(':id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN)
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.revisionesService.remove(id, req.user);
   }

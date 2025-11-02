@@ -28,7 +28,7 @@ export class CertificadosController {
    * Genera y descarga el PDF del certificado de una revisión
    */
   @Get('revision/:id/pdf')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.MUNICIPIO)
   async descargarPDF(
     @Param('id', ParseIntPipe) revisionId: number,
     @Res() res: Response,
@@ -55,7 +55,7 @@ export class CertificadosController {
    * Lista todos los certificados de la cámara del usuario
    */
   @Get()
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.MUNICIPIO)
   async findAll(@Req() req: any) {
     return this.certificadosService.findAll(req.user.camaraId);
   }
@@ -64,7 +64,7 @@ export class CertificadosController {
    * Genera el certificado para una revisión (sin descargar PDF)
    */
   @Post('revision/:id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.MUNICIPIO)
   async generarCertificado(@Param('id', ParseIntPipe) revisionId: number) {
     return this.certificadosService.generarCertificado(revisionId);
   }

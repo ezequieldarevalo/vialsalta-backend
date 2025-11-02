@@ -31,9 +31,18 @@ export class UsersService {
     camaraId?: number;
     plantaId?: number;
     municipioId?: number;
+    // isAdminPlanta?: boolean;
   }): Promise<User> {
-    const { username, email, password, role, camaraId, plantaId, municipioId } =
-      params;
+    const {
+      username,
+      email,
+      password,
+      role,
+      camaraId,
+      plantaId,
+      municipioId,
+      // isAdminPlanta,
+    } = params;
 
     const existingEmail = await this.findByEmail(email);
     if (existingEmail) {
@@ -51,10 +60,12 @@ export class UsersService {
     newUser.username = username;
     newUser.email = email;
     newUser.password = passwordHash;
+
     newUser.role = role;
     if (camaraId) newUser.camaraId = camaraId;
     if (plantaId) newUser.plantaId = plantaId;
     if (municipioId) newUser.municipioId = municipioId;
+    // newUser.isAdminPlanta = !!isAdminPlanta;
     newUser.activo = true;
 
     return await this.repo.save(newUser);

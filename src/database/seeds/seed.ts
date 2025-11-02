@@ -332,8 +332,9 @@ async function runSeed() {
     const userRepo = dataSource.getRepository(User);
     const hashedPassword = await bcrypt.hash('Password123!', 10);
 
+    // Usuarios de prueba: admin y operador por planta, admin cámara y fiscal municipio
     const usersData = [
-      // Usuarios Salta
+      // Salta - Cámara
       {
         username: 'admin.salta',
         email: 'admin@camarasalta.gob.ar',
@@ -341,21 +342,58 @@ async function runSeed() {
         role: UserRole.CAMARA,
         camara: camaraSalta,
       },
+      // Salta - Plantas
+      {
+        username: 'admin.salta.centro',
+        email: 'admin.salta.centro@vtvsalta.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasSalta[0],
+      },
       {
         username: 'operador.salta.centro',
-        email: 'operador@vtvsalta.com.ar',
+        email: 'operador.salta.centro@vtvsalta.com.ar',
         password: hashedPassword,
-        role: UserRole.PLANTA,
-        planta: plantasSalta[0], // VTV Salta Centro
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasSalta[0],
       },
+      {
+        username: 'admin.salta.norte',
+        email: 'admin.salta.norte@vtvsalta.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasSalta[1],
+      },
+      {
+        username: 'operador.salta.norte',
+        email: 'operador.salta.norte@vtvsalta.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasSalta[1],
+      },
+      {
+        username: 'admin.salta.oran',
+        email: 'admin.salta.oran@vtvoran.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasSalta[2],
+      },
+      {
+        username: 'operador.salta.oran',
+        email: 'operador.salta.oran@vtvoran.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasSalta[2],
+      },
+      // Salta - Municipio
       {
         username: 'fiscal.salta',
         email: 'fiscal@saltacapital.gob.ar',
         password: hashedPassword,
         role: UserRole.MUNICIPIO,
-        municipio: municipiosSalta[0], // Salta Capital
+        municipio: municipiosSalta[0],
       },
-      // Usuarios Córdoba
+      // Córdoba - Cámara
       {
         username: 'admin.cordoba',
         email: 'admin@camaracordoba.org.ar',
@@ -363,21 +401,44 @@ async function runSeed() {
         role: UserRole.CAMARA,
         camara: camaraCordoba,
       },
+      // Córdoba - Plantas
+      {
+        username: 'admin.cordoba.centro',
+        email: 'admin.cordoba.centro@rtocordoba.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasCordoba[0],
+      },
       {
         username: 'operador.cordoba.centro',
-        email: 'operador@rtocordoba.com.ar',
+        email: 'operador.cordoba.centro@rtocordoba.com.ar',
         password: hashedPassword,
-        role: UserRole.PLANTA,
-        planta: plantasCordoba[0], // RTO Córdoba Centro
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasCordoba[0],
       },
+      {
+        username: 'admin.cordoba.villamaria',
+        email: 'admin.cordoba.villamaria@rtovmaria.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasCordoba[1],
+      },
+      {
+        username: 'operador.cordoba.villamaria',
+        email: 'operador.cordoba.villamaria@rtovmaria.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasCordoba[1],
+      },
+      // Córdoba - Municipio
       {
         username: 'fiscal.cordoba',
         email: 'fiscal@cordobacapital.gob.ar',
         password: hashedPassword,
         role: UserRole.MUNICIPIO,
-        municipio: municipiosCordoba[0], // Córdoba Capital
+        municipio: municipiosCordoba[0],
       },
-      // Usuarios Tucumán
+      // Tucumán - Cámara
       {
         username: 'admin.tucuman',
         email: 'admin@camaratucuman.gob.ar',
@@ -385,19 +446,28 @@ async function runSeed() {
         role: UserRole.CAMARA,
         camara: camaraTucuman,
       },
+      // Tucumán - Planta
       {
-        username: 'operador.tucuman',
-        email: 'operador@vtvtucuman.com.ar',
+        username: 'admin.tucuman.centro',
+        email: 'admin.tucuman.centro@vtvtucuman.com.ar',
         password: hashedPassword,
-        role: UserRole.PLANTA,
-        planta: plantasTucuman[0], // VTV Tucumán Centro
+        role: UserRole.PLANTA_ADMIN,
+        planta: plantasTucuman[0],
       },
+      {
+        username: 'operador.tucuman.centro',
+        email: 'operador.tucuman.centro@vtvtucuman.com.ar',
+        password: hashedPassword,
+        role: UserRole.PLANTA_OPERADOR,
+        planta: plantasTucuman[0],
+      },
+      // Tucumán - Municipio
       {
         username: 'fiscal.tucuman',
         email: 'fiscal@smtucuman.gob.ar',
         password: hashedPassword,
         role: UserRole.MUNICIPIO,
-        municipio: municipiosTucuman[0], // SMT
+        municipio: municipiosTucuman[0],
       },
     ];
 

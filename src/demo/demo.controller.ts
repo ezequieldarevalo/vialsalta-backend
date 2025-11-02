@@ -24,20 +24,22 @@ export class DemoController {
     };
   }
 
-  @Roles(UserRole.PLANTA)
+  @Roles(UserRole.PLANTA_ADMIN, UserRole.PLANTA_OPERADOR)
   @Get('planta-only')
   getPlantaOnly() {
     return {
-      message: 'Solo usuarios con rol PLANTA pueden ver esto',
+      message:
+        'Solo usuarios con rol PLANTA_ADMIN o PLANTA_OPERADOR pueden ver esto',
       data: 'Información exclusiva de planta',
     };
   }
 
-  @Roles(UserRole.CAMARA, UserRole.PLANTA)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.PLANTA_OPERADOR)
   @Get('camara-or-planta')
   getCamaraOrPlanta() {
     return {
-      message: 'Usuarios con rol CAMARA o PLANTA pueden ver esto',
+      message:
+        'Usuarios con rol CAMARA, PLANTA_ADMIN o PLANTA_OPERADOR pueden ver esto',
       data: 'Información compartida',
     };
   }

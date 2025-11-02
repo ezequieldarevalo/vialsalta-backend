@@ -30,7 +30,12 @@ export class VehiculosController {
    * Crear un nuevo vehículo
    */
   @Post()
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   create(@Body() createVehiculoDto: CreateVehiculoDto) {
     return this.vehiculosService.create(createVehiculoDto);
   }
@@ -39,7 +44,12 @@ export class VehiculosController {
    * Listar todos los vehículos
    */
   @Get()
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   findAll(@Query('disponibles') disponibles?: string) {
     // Si viene ?disponibles=true, devolver solo disponibles para revisión
     if (disponibles === 'true') {
@@ -52,7 +62,12 @@ export class VehiculosController {
    * Buscar vehículo por dominio (query param)
    */
   @Get('buscar')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   findByDominio(@Query('dominio') dominio: string) {
     return this.vehiculosService.findByDominio(dominio);
   }
@@ -61,7 +76,12 @@ export class VehiculosController {
    * Obtener un vehículo por ID
    */
   @Get(':id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA, UserRole.MUNICIPIO)
+  @Roles(
+    UserRole.CAMARA,
+    UserRole.PLANTA_ADMIN,
+    UserRole.PLANTA_OPERADOR,
+    UserRole.MUNICIPIO,
+  )
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.vehiculosService.findOne(id);
   }
@@ -70,7 +90,7 @@ export class VehiculosController {
    * Actualizar un vehículo
    */
   @Patch(':id')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA)
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.PLANTA_OPERADOR)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateVehiculoDto: UpdateVehiculoDto,

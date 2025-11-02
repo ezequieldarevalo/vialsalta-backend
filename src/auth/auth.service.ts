@@ -103,7 +103,7 @@ export class AuthService {
       email: dto.email,
       username: dto.email,
       password: dto.password,
-      role: UserRole.PLANTA,
+      role: UserRole.PLANTA_ADMIN,
       plantaId: planta.id,
       camaraId: dto.camaraId,
     });

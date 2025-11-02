@@ -401,7 +401,7 @@ export class CertificadosService {
         const qrImage = await pdfDoc.embedPng(qrImageBytes);
         console.log('[generarPDF] ✅ PNG embebido exitosamente');
 
-        const qrDims = qrImage.scale(0.3);
+        const qrDims = qrImage.scale(0.6);
         page.drawImage(qrImage, {
           x: 50,
           y: yPosition - 50,
