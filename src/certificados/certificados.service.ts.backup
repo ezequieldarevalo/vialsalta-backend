@@ -1,0 +1,211 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Like } from 'typeorm';
+import { Certificado } from './entities/certificado.entity';
+import { Revision } from '../revisiones/entities/revision.entity';
+import * as QRCode from 'qrcode';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+
+@Injectable()
+export class CertificadosService {
+  constructor(
+    @InjectRepository(Certificado)
+    private certificadosRepository: Repository<Certificado>,
+    @InjectRepository(Revision)
+    private revisionesRepository: Repository<Revision>,
+  ) {}
+
+  async generarCertificado(revisionId: number): Promise<Certificado> {
+    const revision = await this.revisionesRepository.findOne({
+      where: { id: revisionId },
+      relations: ['vehiculo', 'oblea', 'planta', 'usuario', 'planta.camara'],
+    });
+
+    if (!revision) {
+      throw new NotFoundException('Revisión no encontrada');
+    }
+
+    if (!revision.oblea) {
+      throw new NotFoundException(
+        'No se puede generar certificado sin oblea asignada',
+      );
+    }
+
+    let certificado = await this.certificadosRepository.findOne({
+      where: { revision: { id: revisionId } },
+    });
+
+    if (certificado) {
+      console.log('✅ Certificado ya existe:', certificado.id);
+      return certificado;
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const uniqueCode = `QR-${revision.oblea.numero}-${Date.now()}-${revisionId}`;
+    const urlVerificacion = `${frontendUrl}/verificar/${uniqueCode}`;
+
+    console.log('[generarCertificado] URL verificación:', urlVerificacion);
+
+    const codigoQr = await QRCode.toDataURL(urlVerificacion);
+
+    console.log('[generarCertificado] Código QR generado');
+
+    certificado = this.certificadosRepository.create({
+      revision,
+      oleaId: revision.oleaId,
+      urlVerificacion,
+      codigoQr,
+      fechaEmision: new Date(),
+      numeroCertificado: `CERT-${revisionId}-${Date.now()}`,
+      fechaVencimiento: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    });
+
+    await this.certificadosRepository.save(certificado);
+
+    console.log('✅ Certificado guardado:', certificado.id);
+
+    return certificado;
+  }
+
+  async generarPDF(revisionId: number): Promise<Buffer> {
+    console.log('[generarPDF] Inicio - revisionId:', revisionId);
+
+    const revision = await this.revisionesRepository.findOne({
+      where: { id: revisionId },
+      relations: ['vehiculo', 'oblea', 'planta', 'usuario', 'planta.camara'],
+    });
+
+    if (!revision) {
+      throw new NotFoundException('Revisión no encontrada');
+    }
+
+    console.log('[generarPDF] Revisión encontrada:', revision.id);
+
+    const certificado = await this.generarCertificado(revisionId);
+
+    console.log('[generarPDF] Certificado generado:', certificado.numeroCertificado);
+
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595, 842]);
+    const { height } = page.getSize();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    let yPosition = height - 50;
+
+    page.drawText('CERTIFICADO DE REVISIÓN TÉCNICA VEHICULAR', {
+      x: 50,
+      y: yPosition,
+      size: 20,
+      font: fontBold,
+      color: rgb(0, 0, 0.5),
+    });
+
+    yPosition -= 30;
+    page.drawText(`Provincia: ${revision.planta.camara.provincia}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+    page.drawText(`Cámara: ${revision.planta.camara.nombre}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+    page.drawText(`Planta: ${revision.planta.nombre}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 40;
+
+    page.drawText('INFORMACIÓN DEL VEHÍCULO', { x: 50, y: yPosition, size: 14, font: fontBold });
+    yPosition -= 25;
+    page.drawText(`Dominio: ${revision.vehiculo.dominio}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+    page.drawText(`Marca: ${revision.vehiculo.marca} - Modelo: ${revision.vehiculo.modelo}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+    page.drawText(`Año: ${revision.vehiculo.anio}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 40;
+
+    page.drawText('RESULTADO DE LA REVISIÓN', { x: 50, y: yPosition, size: 14, font: fontBold });
+    yPosition -= 25;
+    const resultadoColor = revision.resultado === 'APROBADO' ? rgb(0, 0.5, 0) : rgb(0.5, 0, 0);
+    page.drawText(`Resultado: ${revision.resultado}`, { x: 50, y: yPosition, size: 12, font, color: resultadoColor });
+    yPosition -= 20;
+    page.drawText(`Fecha: ${new Date(revision.fechaRevision).toLocaleDateString('es-AR')}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+    page.drawText(`Inspector: ${revision.usuario.nombre}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 40;
+
+    page.drawText('OBLEA', { x: 50, y: yPosition, size: 14, font: fontBold });
+    yPosition -= 25;
+    page.drawText(`Número: ${revision.oblea.numero}`, { x: 50, y: yPosition, size: 12, font });
+    yPosition -= 20;
+
+    if (revision.oblea.fechaAsignacion) {
+      page.drawText(`Fecha de asignación: ${new Date(revision.oblea.fechaAsignacion).toLocaleDateString('es-AR')}`, { x: 50, y: yPosition, size: 12, font });
+      yPosition -= 30;
+    }
+
+    page.drawText('URL de verificación:', { x: 50, y: yPosition, size: 10, font });
+    yPosition -= 15;
+    page.drawText(certificado.urlVerificacion || 'N/A', { x: 50, y: yPosition, size: 9, font, color: rgb(0, 0, 0.8) });
+    yPosition -= 25;
+
+    if (revision.oblea.codigoQr) {
+      try {
+        const qrImage = await pdfDoc.embedPng(revision.oblea.codigoQr);
+        const qrDims = qrImage.scale(0.3);
+        page.drawImage(qrImage, { x: 50, y: yPosition - 50, width: qrDims.width, height: qrDims.height });
+        page.drawText('Escanee para verificar:', { x: 50, y: yPosition - 50, size: 10, font });
+      } catch (error) {
+        console.error('[generarPDF] Error al insertar QR:', error);
+        page.drawText(`Código QR: ${revision.oblea.codigoQr || 'Error al generar'}`, { x: 50, y: yPosition, size: 10, font });
+      }
+    } else {
+      page.drawText(`Código QR: ${revision.oblea.codigoQr || 'Pendiente'}`, { x: 50, y: yPosition, size: 10, font });
+    }
+
+    yPosition -= 30;
+
+    page.drawText(`Emitido: ${new Date(certificado.fechaEmision).toLocaleDateString('es-AR')}`, { x: 50, y: 50, size: 8, font });
+    page.drawText('Documento con validez legal', { x: 50, y: 35, size: 8, font });
+
+    const pdfBytes = await pdfDoc.save();
+    const buffer = Buffer.from(pdfBytes);
+
+    console.log('[generarPDF] PDF generado - Tamaño:', buffer.length, 'bytes');
+    console.log('[generarPDF] Es Buffer?:', Buffer.isBuffer(buffer));
+
+    return buffer;
+  }
+
+  async verificarPorCodigoQr(codigoQr: string) {
+    const certificado = await this.certificadosRepository.findOne({
+      where: { codigoQr: Like(`%${codigoQr}%`) },
+      relations: ['revision', 'revision.vehiculo', 'revision.oblea', 'revision.planta', 'revision.planta.camara'],
+    });
+
+    if (!certificado) {
+      throw new NotFoundException('Certificado no encontrado');
+    }
+
+    const { dominio, marca, modelo, anio } = certificado.revision.vehiculo;
+
+    return {
+      valido: true,
+      certificado: {
+        numero: certificado.numeroCertificado,
+        fechaEmision: certificado.fechaEmision,
+        fechaVencimiento: certificado.fechaVencimiento,
+      },
+      vehiculo: { dominio, marca, modelo, anio },
+      revision: {
+        fecha: certificado.revision.fechaRevision,
+        resultado: certificado.revision.resultado,
+        planta: certificado.revision.planta.nombre,
+        provincia: certificado.revision.planta.camara.provincia,
+      },
+      oblea: { numero: certificado.revision.oblea.numero },
+    };
+  }
+
+  async findAll(camaraId: number) {
+    return this.certificadosRepository.find({
+      where: { revision: { planta: { camaraId } } },
+      relations: ['revision', 'revision.vehiculo', 'revision.oblea'],
+      order: { fechaEmision: 'DESC' },
+    });
+  }
+}
