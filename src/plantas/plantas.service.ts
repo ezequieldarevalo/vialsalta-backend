@@ -5,6 +5,16 @@ import { Planta } from './entities/planta.entity';
 
 @Injectable()
 export class PlantasService {
+  async update(id: number, data: Partial<Planta>): Promise<Planta> {
+    await this.plantasRepository.update(id, data);
+    const updated = await this.findOne(id);
+    if (!updated) throw new Error('Planta no encontrada');
+    return updated;
+  }
+
+  async remove(id: number): Promise<void> {
+    await this.plantasRepository.delete(id);
+  }
   constructor(
     @InjectRepository(Planta)
     private plantasRepository: Repository<Planta>,

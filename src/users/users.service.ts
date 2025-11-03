@@ -74,4 +74,20 @@ export class UsersService {
   async validatePassword(user: User, password: string): Promise<boolean> {
     return bcrypt.compare(password, user.password);
   }
-}
+
+  async findAll(): Promise<User[]> {
+    return this.repo.find();
+  }
+
+  async updateUser(id: number, dto: Partial<User>): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new BadRequestException('User not found');
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+    Object.assign(user, dto);
+    return this.repo.save(user);
+  }
+  }
+
+

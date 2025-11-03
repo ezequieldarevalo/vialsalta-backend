@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Municipio } from './entities/municipio.entity';
+import { MunicipiosService } from './municipios.service';
+import { MunicipiosController } from './municipios.controller';
 
-/**
- * Módulo de Municipios
- */
 @Module({
   imports: [TypeOrmModule.forFeature([Municipio])],
-  exports: [TypeOrmModule],
+  controllers: [MunicipiosController],
+  providers: [MunicipiosService],
+  exports: [TypeOrmModule, MunicipiosService],
 })
 export class MunicipiosModule {}
