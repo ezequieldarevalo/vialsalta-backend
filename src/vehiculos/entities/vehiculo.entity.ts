@@ -6,9 +6,12 @@ import {
   UpdateDateColumn,
   Index,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
-import { TipoVehiculo, TipoCombustible } from '../../common/enums';
+import { TipoVehiculo as TipoVehiculoEnum, TipoCombustible } from '../../common/enums';
 import { Revision } from '../../revisiones/entities/revision.entity';
+import { TipoVehiculo as TipoVehiculoEntity } from '../../tipos-vehiculo/entities/tipo-vehiculo.entity';
 
 /**
  * Entidad Vehículo
@@ -34,9 +37,18 @@ export class Vehiculo {
 
   @Column({
     type: 'enum',
-    enum: TipoVehiculo,
+    enum: TipoVehiculoEnum,
+    nullable: true,
   })
-  tipo: TipoVehiculo;
+  tipo?: TipoVehiculoEnum;
+
+  // Relación con TipoVehiculo configurado
+  @Column({ nullable: true })
+  tipoVehiculoId?: number;
+
+  @ManyToOne(() => TipoVehiculoEntity, { eager: true, nullable: true })
+  @JoinColumn({ name: 'tipoVehiculoId' })
+  tipoVehiculo?: TipoVehiculoEntity;
 
   @Column({
     type: 'enum',
@@ -45,10 +57,13 @@ export class Vehiculo {
   combustible: TipoCombustible;
 
   @Column({ length: 100, nullable: true })
-  numeroMotor: string;
+  numeroMotor?: string;
 
   @Column({ length: 100, nullable: true })
-  numeroChasis: string;
+  numeroChasis?: string;
+
+  @Column({ type: 'date', nullable: true })
+  fechaPrimeraMatriculacion?: Date;
 
   // Relación con revisiones
   @OneToMany(() => Revision, (revision) => revision.vehiculo)

@@ -22,11 +22,11 @@ export class Certificado {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true, nullable: true })
+  @Column({ unique: true })
   revisionId: number;
 
-  @Column({ unique: true, nullable: true })
-  oleaId: number | null;
+  @Column({ unique: true })
+  oleaId: number;
 
   @Column({ length: 50, unique: true })
   numeroCertificado: string;

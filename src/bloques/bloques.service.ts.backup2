@@ -33,23 +33,21 @@ export class BloquesService {
    * Genera el código QR para una oblea
    * Incluye firma digital para evitar falsificaciones
    */
-  /**
-   * Genera el código QR para una oblea
-   * Retorna la URL completa de verificación
-   */
   private generateQRCode(numero: number, bloqueId: number): string {
-    // Firma digital para evitar falsificaciones
+    const data = {
+      numero,
+      bloqueId,
+      timestamp: Date.now(),
+    };
+    
+    // Firma digital simple (en producción usar secret key más robusta)
     const signature = crypto
       .createHash('sha256')
       .update(`${numero}-${bloqueId}-${process.env.QR_SECRET || 'default-secret'}`)
       .digest('hex')
       .substring(0, 16);
     
-    const codigo = `OBL-${numero}-${signature}`;
-    
-    // 🌐 URL completa de verificación
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return `${frontendUrl}/verificar/${codigo}`;
+    return `OBL-${numero}-${signature}`;
   }
 
   async create(

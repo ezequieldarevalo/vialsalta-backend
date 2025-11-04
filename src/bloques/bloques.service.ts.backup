@@ -14,7 +14,6 @@ import { Camara } from '../camaras/entities/camara.entity';
 import { CreateBloqueDto } from './dto/create-bloque.dto';
 import { UpdateBloqueDto } from './dto/update-bloque.dto';
 import { EstadoBloque, EstadoOblea } from '../common/enums';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class BloquesService {
@@ -28,29 +27,6 @@ export class BloquesService {
     @InjectRepository(Camara)
     private camarasRepository: Repository<Camara>,
   ) {}
-
-  /**
-   * Genera el código QR para una oblea
-   * Incluye firma digital para evitar falsificaciones
-   */
-  /**
-   * Genera el código QR para una oblea
-   * Retorna la URL completa de verificación
-   */
-  private generateQRCode(numero: number, bloqueId: number): string {
-    // Firma digital para evitar falsificaciones
-    const signature = crypto
-      .createHash('sha256')
-      .update(`${numero}-${bloqueId}-${process.env.QR_SECRET || 'default-secret'}`)
-      .digest('hex')
-      .substring(0, 16);
-    
-    const codigo = `OBL-${numero}-${signature}`;
-    
-    // 🌐 URL completa de verificación
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return `${frontendUrl}/verificar/${codigo}`;
-  }
 
   async create(
     createBloqueDto: CreateBloqueDto,
@@ -84,7 +60,7 @@ export class BloquesService {
 
     const year = new Date().getFullYear();
     const codigo = `BLQ-${camara.codigo}-${year}-${numeroConsecutivo.toString().padStart(3, '0')}`;
-    
+
     // Verificar que el código generado no exista (por seguridad)
     const existingBloque = await this.bloquesRepository.findOne({
       where: { codigo },
@@ -145,16 +121,13 @@ export class BloquesService {
 
     const savedBloque = await this.bloquesRepository.save(bloque);
 
-    // 🎯 Crear obleas con QR generado automáticamente
+    // Crear obleas automáticamente
     const obleas: Partial<Oblea>[] = [];
     for (let i = numeroInicio; i <= numeroFin; i++) {
-      const codigoQr = this.generateQRCode(i, savedBloque.id);
       obleas.push({
         numero: i,
-        codigoQr,  // ✨ QR generado
-        qrActivo: false,  // ✨ QR inactivo por defecto
         estado: EstadoOblea.DISPONIBLE,
-        camaraId: camaraId,
+        camaraId: camaraId, // Asignar cámara a cada oblea
         bloque: savedBloque,
       });
     }
@@ -332,27 +305,5 @@ export class BloquesService {
         porEstado: obleasPorEstado,
       },
     };
-  }
-
-  /**
-   * 📥 Genera CSV con el detalle de obleas de un bloque
-   * Para mandar a imprimir
-   */
-  async generarCSV(id: number, camaraId: number): Promise<string> {
-    const bloque = await this.findOne(id, camaraId);
-    
-    if (!bloque.obleas || bloque.obleas.length === 0) {
-      throw new NotFoundException('El bloque no tiene obleas asociadas');
-    }
-
-    // Header del CSV
-    let csv = 'Numero,CodigoQR,Estado,QRActivo,Bloque,FechaCreacion\n';
-    
-    // Datos
-    for (const oblea of bloque.obleas) {
-      csv += `${oblea.numero},${oblea.codigoQr},${oblea.estado},${oblea.qrActivo ? 'SI' : 'NO'},${bloque.codigo},${oblea.createdAt.toISOString()}\n`;
-    }
-    
-    return csv;
   }
 }

@@ -271,25 +271,6 @@ export class RevisionesService {
     oblea.revisionId = revisionId;
     await this.obleasRepository.save(oblea);
 
-    // 🎯 RECALCULAR FECHA DE VENCIMIENTO AL ASIGNAR OBLEA
-    // Este es el momento oficial de aprobación, no al crear la revisión
-    console.log(
-      `🔄 [ASIGNAR OBLEA] Recalculando fecha de vencimiento para revisión ${revisionId}`,
-    );
-    
-    const nuevaFechaVencimiento = await this.calcularFechaVencimiento(
-      revision.vehiculoId,
-      revision.resultado,
-      revision.fechaRevision,
-    );
-    
-    if (nuevaFechaVencimiento) {
-      revision.fechaVencimiento = nuevaFechaVencimiento;
-      console.log(
-        `✅ [ASIGNAR OBLEA] Nueva fecha de vencimiento: ${nuevaFechaVencimiento.toISOString()}`,
-      );
-    }
-
     // Asignar la oblea a la revisión
     revision.oleaId = oblea.id;
     await this.revisionesRepository.save(revision);

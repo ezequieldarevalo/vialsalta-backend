@@ -1,0 +1,319 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Between } from 'typeorm';
+import { Revision } from '../revisiones/entities/revision.entity';
+import { Vehiculo } from '../vehiculos/entities/vehiculo.entity';
+import { BloqueObleas } from '../bloques/entities/bloque-obleas.entity';
+import { ResultadoRevision } from '../common/enums';
+import {
+  RevisionesMesDto,
+  ObleasStatsDto,
+  TasaAprobacionDto,
+  VehiculosPorTipoDto,
+  VehiculoProximoVencerDto,
+  EstadisticasResponseDto,
+  MesAprobacionDto,
+} from './dto/estadisticas-response.dto';
+
+/**
+ * Servicio para generar estadísticas de planta
+ */
+@Injectable()
+export class EstadisticasService {
+  constructor(
+    @InjectRepository(Revision)
+    private revisionesRepository: Repository<Revision>,
+    @InjectRepository(Vehiculo)
+    private vehiculosRepository: Repository<Vehiculo>,
+    @InjectRepository(BloqueObleas)
+    private bloquesRepository: Repository<BloqueObleas>,
+  ) {}
+
+  /**
+   * Obtener todas las estadísticas de una planta
+   */
+  async getEstadisticas(plantaId: number): Promise<EstadisticasResponseDto> {
+    const [
+      revisionesMes,
+      obleas,
+      tasaAprobacion,
+      vehiculosPorTipo,
+      proximosVencimientos,
+    ] = await Promise.all([
+      this.getRevisionesMes(plantaId),
+      this.getObleasStats(plantaId),
+      this.getTasaAprobacion(plantaId),
+      this.getVehiculosPorTipo(plantaId),
+      this.getProximosVencimientos(plantaId),
+    ]);
+
+    return {
+      revisionesMes,
+      obleas,
+      tasaAprobacion,
+      vehiculosPorTipo,
+      proximosVencimientos,
+    };
+  }
+
+  /**
+   * Obtener revisiones del mes actual
+   */
+  private async getRevisionesMes(
+    plantaId: number,
+  ): Promise<RevisionesMesDto> {
+    const now = new Date();
+    const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const revisiones = await this.revisionesRepository.find({
+      where: {
+        plantaId,
+        fechaRevision: Between(inicioMes, finMes),
+      },
+    });
+
+    const total = revisiones.length;
+    const aprobadas = revisiones.filter(
+      (r) => r.resultado === ResultadoRevision.APROBADO,
+    ).length;
+    const rechazadas = revisiones.filter(
+      (r) => r.resultado === ResultadoRevision.RECHAZADO,
+    ).length;
+    const condicionales = revisiones.filter(
+      (r) => r.resultado === ResultadoRevision.CONDICIONAL,
+    ).length;
+
+    return {
+      total,
+      aprobadas,
+      rechazadas,
+      condicionales,
+      porcentajeAprobadas: total > 0 ? Math.round((aprobadas / total) * 10000) / 100 : 0,
+      porcentajeRechazadas: total > 0 ? Math.round((rechazadas / total) * 10000) / 100 : 0,
+      porcentajeCondicionales: total > 0 ? Math.round((condicionales / total) * 10000) / 100 : 0,
+    };
+  }
+
+  /**
+   * Obtener estadísticas de obleas
+   */
+  private async getObleasStats(plantaId: number): Promise<ObleasStatsDto> {
+    // Obtener todos los bloques asignados a esta planta
+    const bloques = await this.bloquesRepository.find({
+      where: { plantaId },
+    });
+
+    if (bloques.length === 0) {
+      return {
+        utilizadasMes: 0,
+        disponibles: 0,
+        alertaBajoStock: true,
+        umbralAlerta: 20,
+      };
+    }
+
+    // Calcular total de obleas en todos los bloques
+    const total = bloques.reduce((sum, bloque) => sum + (bloque.numeroFin - bloque.numeroInicio + 1), 0);
+
+    // Contar obleas utilizadas en el mes actual
+    const now = new Date();
+    const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const utilizadasMes = await this.revisionesRepository
+      .createQueryBuilder('revision')
+      .innerJoin('revision.oblea', 'oblea')
+      .where('oblea.bloqueId IN (:...bloqueIds)', {
+        bloqueIds: bloques.map((b) => b.id),
+      })
+      .andWhere('revision.fechaRevision BETWEEN :inicio AND :fin', {
+        inicio: inicioMes,
+        fin: finMes,
+      })
+      .getCount();
+
+    // Contar obleas totalmente utilizadas
+    const utilizadasTotal = await this.revisionesRepository
+      .createQueryBuilder('revision')
+      .innerJoin('revision.oblea', 'oblea')
+      .where('oblea.bloqueId IN (:...bloqueIds)', {
+        bloqueIds: bloques.map((b) => b.id),
+      })
+      .getCount();
+
+    const disponibles = total - utilizadasTotal;
+    const alertaBajoStock = disponibles < total * 0.2; // Alerta si quedan menos del 20%
+
+    return {
+      utilizadasMes,
+      disponibles,
+      alertaBajoStock,
+      umbralAlerta: 20,
+    };
+  }
+
+  /**
+   * Calcular tasa de aprobación con tendencia de 6 meses
+   */
+  private async getTasaAprobacion(
+    plantaId: number,
+  ): Promise<TasaAprobacionDto> {
+    const now = new Date();
+    const ultimos6Meses: MesAprobacionDto[] = [];
+
+    // Calcular para los últimos 6 meses
+    for (let i = 5; i >= 0; i--) {
+      const inicioMes = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const finMes = new Date(
+        now.getFullYear(),
+        now.getMonth() - i + 1,
+        0,
+        23,
+        59,
+        59,
+      );
+
+      const revisiones = await this.revisionesRepository.find({
+        where: {
+          plantaId,
+          fechaRevision: Between(inicioMes, finMes),
+        },
+      });
+
+      const total = revisiones.length;
+      const aprobadas = revisiones.filter(
+        (r) => r.resultado === ResultadoRevision.APROBADO,
+      ).length;
+      const porcentaje = total > 0 ? (aprobadas / total) * 100 : 0;
+
+      const mesNombre = inicioMes.toLocaleDateString('es-ES', {
+        month: 'short',
+      });
+
+      ultimos6Meses.push({
+        mes: mesNombre,
+        anio: inicioMes.getFullYear(),
+        total,
+        porcentaje: Math.round(porcentaje * 100) / 100,
+      });
+    }
+
+    // Calcular tasa actual y anterior
+    const actual =
+      ultimos6Meses.length > 0 ? ultimos6Meses[ultimos6Meses.length - 1] : null;
+    const anterior =
+      ultimos6Meses.length > 1 ? ultimos6Meses[ultimos6Meses.length - 2] : null;
+
+    const mesActual = actual?.porcentaje || 0;
+    const mesAnterior = anterior?.porcentaje || 0;
+    const diferencia = Math.round((mesActual - mesAnterior) * 100) / 100;
+
+    let tendencia: 'subida' | 'bajada' | 'estable' = 'estable';
+    if (diferencia > 2) tendencia = 'subida';
+    if (diferencia < -2) tendencia = 'bajada';
+
+    return {
+      mesActual,
+      mesAnterior,
+      diferencia,
+      tendencia,
+      ultimos6Meses,
+    };
+  }
+
+  /**
+   * Obtener distribución de vehículos por tipo
+   */
+  private async getVehiculosPorTipo(
+    plantaId: number,
+  ): Promise<VehiculosPorTipoDto[]> {
+    const revisiones = await this.revisionesRepository.find({
+      where: { plantaId },
+      relations: ['vehiculo', 'vehiculo.tipoVehiculo'],
+    });
+
+    // Usar Map para evitar duplicados de vehículos
+    const vehiculosUnicos = new Map<number, Vehiculo>();
+    revisiones.forEach((revision) => {
+      if (revision.vehiculo) {
+        vehiculosUnicos.set(revision.vehiculo.id, revision.vehiculo);
+      }
+    });
+
+    // Contar por tipo
+    const countPorTipo = new Map<string, number>();
+    vehiculosUnicos.forEach((vehiculo) => {
+      const tipo = vehiculo.tipoVehiculo?.nombre || vehiculo.tipo || 'Sin tipo';
+      countPorTipo.set(tipo, (countPorTipo.get(tipo) || 0) + 1);
+    });
+
+    const total = vehiculosUnicos.size;
+
+    return Array.from(countPorTipo.entries()).map(([tipo, cantidad]) => ({
+      tipo,
+      cantidad,
+      porcentaje: total > 0 ? Math.round((cantidad / total) * 10000) / 100 : 0,
+    }));
+  }
+
+  /**
+   * Obtener vehículos que vencen en los próximos 30-60 días
+   */
+  private async getProximosVencimientos(
+    plantaId: number,
+  ): Promise<VehiculoProximoVencerDto[]> {
+    const now = new Date();
+    const en30Dias = new Date(now);
+    en30Dias.setDate(en30Dias.getDate() + 30);
+    const en60Dias = new Date(now);
+    en60Dias.setDate(en60Dias.getDate() + 60);
+
+    // Buscar revisiones aprobadas que vencen en los próximos 30-60 días
+    const revisiones = await this.revisionesRepository.find({
+      where: {
+        plantaId,
+        resultado: ResultadoRevision.APROBADO,
+        fechaVencimiento: Between(en30Dias, en60Dias),
+      },
+      relations: ['vehiculo', 'vehiculo.tipoVehiculo'],
+      order: {
+        fechaVencimiento: 'ASC',
+      },
+    });
+
+    const result: VehiculoProximoVencerDto[] = [];
+    const vehiculosAgregados = new Set<number>();
+
+    for (const revision of revisiones) {
+      // Saltear si no tiene vehículo, ya está agregado, o no tiene fecha de vencimiento
+      if (
+        !revision.vehiculo ||
+        vehiculosAgregados.has(revision.vehiculo.id) ||
+        !revision.fechaVencimiento
+      ) {
+        continue;
+      }
+
+      const diasRestantes = Math.ceil(
+        (new Date(revision.fechaVencimiento).getTime() - now.getTime()) /
+          (1000 * 60 * 60 * 24),
+      );
+
+      result.push({
+        id: revision.vehiculo.id,
+        dominio: revision.vehiculo.dominio,
+        marca: revision.vehiculo.marca,
+        modelo: revision.vehiculo.modelo,
+        tipoVehiculo:
+          revision.vehiculo.tipoVehiculo?.nombre || revision.vehiculo.tipo,
+        fechaVencimiento: revision.fechaVencimiento,
+        diasRestantes,
+      });
+
+      vehiculosAgregados.add(revision.vehiculo.id);
+    }
+
+    return result;
+  }
+}

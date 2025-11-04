@@ -15,6 +15,8 @@ import { ObleasModule } from './obleas/obleas.module';
 import { VehiculosModule } from './vehiculos/vehiculos.module';
 import { RevisionesModule } from './revisiones/revisiones.module';
 import { CertificadosModule } from './certificados/certificados.module';
+import { TiposVehiculoModule } from './tipos-vehiculo/tipos-vehiculo.module';
+import { EstadisticasModule } from './estadisticas/estadisticas.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { DemoModule } from './demo/demo.module';
@@ -47,6 +49,8 @@ import { PaymentsModule } from './payments/payments.module';
     VehiculosModule,
     RevisionesModule,
     CertificadosModule,
+    TiposVehiculoModule,
+    EstadisticasModule,
     // Módulos funcionales
     PublicModule,
     AuthModule,

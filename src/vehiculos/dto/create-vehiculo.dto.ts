@@ -6,6 +6,7 @@ import {
   Length,
   Min,
   Max,
+  IsDateString,
 } from 'class-validator';
 import { TipoVehiculo, TipoCombustible } from '../../common/enums';
 
@@ -25,13 +26,19 @@ export class CreateVehiculoDto {
   @Length(1, 100)
   modelo: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1900)
   @Max(new Date().getFullYear() + 1)
-  anio: number;
+  anio?: number;
 
+  @IsOptional()
   @IsEnum(TipoVehiculo)
-  tipo: TipoVehiculo;
+  tipo?: TipoVehiculo;
+
+  @IsOptional()
+  @IsInt()
+  tipoVehiculoId?: number;
 
   @IsEnum(TipoCombustible)
   combustible: TipoCombustible;
@@ -45,4 +52,8 @@ export class CreateVehiculoDto {
   @IsString()
   @Length(1, 100)
   numeroChasis?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fechaPrimeraMatriculacion?: string;
 }

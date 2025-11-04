@@ -44,7 +44,7 @@ export class Revision {
   fechaRevision: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  fechaVencimiento: Date;
+  fechaVencimiento: Date | null;
 
   @Column({ type: 'text', nullable: true })
   observaciones: string;

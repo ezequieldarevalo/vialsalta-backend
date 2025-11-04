@@ -41,9 +41,6 @@ export class Oblea {
   @Column({ type: 'text', unique: true, nullable: true })
   codigoQr: string;
 
-  @Column({ type: 'boolean', default: false })
-  qrActivo: boolean;
-
   @Column({
     type: 'enum',
     enum: EstadoOblea,

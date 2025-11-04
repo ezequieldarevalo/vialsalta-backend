@@ -23,7 +23,7 @@ export class VehiculosService {
    * Crear un nuevo vehículo
    */
   async create(createVehiculoDto: CreateVehiculoDto): Promise<Vehiculo> {
-    const { dominio } = createVehiculoDto;
+    const { dominio, fechaPrimeraMatriculacion } = createVehiculoDto;
 
     // Verificar que el dominio no existe
     const existe = await this.vehiculosRepository.findOne({
@@ -35,9 +35,24 @@ export class VehiculosService {
       );
     }
 
+    // Calcular el año automáticamente desde la fecha de matriculación o usar el proporcionado
+    let anio = createVehiculoDto.anio;
+    
+    if (!anio && fechaPrimeraMatriculacion) {
+      const fecha = new Date(fechaPrimeraMatriculacion);
+      anio = fecha.getFullYear();
+    }
+
+    if (!anio) {
+      throw new BadRequestException(
+        'Debe proporcionar el año del vehículo o la fecha de primera matriculación',
+      );
+    }
+
     const vehiculo = this.vehiculosRepository.create({
       ...createVehiculoDto,
       dominio: dominio.toUpperCase(),
+      anio,
     });
 
     return this.vehiculosRepository.save(vehiculo);
@@ -91,6 +106,7 @@ export class VehiculosService {
   async findByDominio(dominio: string): Promise<Vehiculo> {
     const vehiculo = await this.vehiculosRepository.findOne({
       where: { dominio: dominio.toUpperCase() },
+      relations: ['revisiones'],
     });
 
     if (!vehiculo) {
@@ -106,7 +122,10 @@ export class VehiculosService {
    * Obtener un vehículo por ID
    */
   async findOne(id: number): Promise<Vehiculo> {
-    const vehiculo = await this.vehiculosRepository.findOne({ where: { id } });
+    const vehiculo = await this.vehiculosRepository.findOne({
+      where: { id },
+      relations: ['revisiones'],
+    });
 
     if (!vehiculo) {
       throw new NotFoundException(`Vehículo con ID ${id} no encontrado`);
@@ -124,10 +143,10 @@ export class VehiculosService {
   ): Promise<Vehiculo> {
     const vehiculo = await this.findOne(id);
 
-    // Si se actualiza el dominio, verificar que no exista
+    // Si se cambia el dominio, verificar que no exista otro vehículo con ese dominio
     if (
       updateVehiculoDto.dominio &&
-      updateVehiculoDto.dominio !== vehiculo.dominio
+      updateVehiculoDto.dominio.toUpperCase() !== vehiculo.dominio
     ) {
       const existe = await this.vehiculosRepository.findOne({
         where: { dominio: updateVehiculoDto.dominio.toUpperCase() },
@@ -140,6 +159,12 @@ export class VehiculosService {
       updateVehiculoDto.dominio = updateVehiculoDto.dominio.toUpperCase();
     }
 
+    // Si se actualiza la fecha de matriculación sin proporcionar año, recalcular
+    if (updateVehiculoDto.fechaPrimeraMatriculacion && !updateVehiculoDto.anio) {
+      const fecha = new Date(updateVehiculoDto.fechaPrimeraMatriculacion);
+      updateVehiculoDto.anio = fecha.getFullYear();
+    }
+
     Object.assign(vehiculo, updateVehiculoDto);
     return this.vehiculosRepository.save(vehiculo);
   }
@@ -149,6 +174,14 @@ export class VehiculosService {
    */
   async remove(id: number): Promise<void> {
     const vehiculo = await this.findOne(id);
+
+    // Verificar que no tenga revisiones
+    if (vehiculo.revisiones && vehiculo.revisiones.length > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar un vehículo que tiene revisiones registradas',
+      );
+    }
+
     await this.vehiculosRepository.remove(vehiculo);
   }
 }

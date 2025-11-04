@@ -13,6 +13,7 @@ import {
 import { RevisionesService } from './revisiones.service';
 import { CreateRevisionDto } from './dto/create-revision.dto';
 import { UpdateRevisionDto } from './dto/update-revision.dto';
+import { AsignarObleaDto } from './dto/asignar-oblea.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -37,13 +38,22 @@ export class RevisionesController {
   }
 
   /**
-   * Asignar oblea a una revisión aprobada
-   * Solo usuarios CAMARA y PLANTA
+   * 🎯 Asignar oblea a una revisión aprobada
+   * Recibe el número de oblea escaneada/ingresada
+   * Activa el QR al asignar
    */
   @Post(':id/asignar-oblea')
-  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN)
-  asignarOblea(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    return this.revisionesService.asignarOblea(id, req.user);
+  @Roles(UserRole.CAMARA, UserRole.PLANTA_ADMIN, UserRole.PLANTA_OPERADOR)
+  asignarOblea(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() asignarObleaDto: AsignarObleaDto,
+    @Req() req: any,
+  ) {
+    return this.revisionesService.asignarOblea(
+      id,
+      asignarObleaDto.numeroOblea,
+      req.user,
+    );
   }
 
   /**

@@ -33,97 +33,6 @@ export class RevisionesService {
   ) {}
 
   /**
-   * 🔧 Calcular fecha de vencimiento según resultado, antigüedad del vehículo y revisiones previas
-   * 
-   * Reglas de negocio:
-   * - RECHAZADO: No tiene vencimiento (no se emite certificado)
-   * - CONDICIONAL: 60 días desde la fecha de revisión
-   * - APROBADO:
-   *   * Vehículos con <= 7 años de antigüedad: 2 años de vigencia
-   *   * Vehículos con > 7 años de antigüedad: 1 año de vigencia
-   *   * Si tiene CONDICIONAL previa: Se resta el tiempo transcurrido entre condicional y aprobado
-   */
-  private async calcularFechaVencimiento(
-    vehiculoId: number,
-    resultado: ResultadoRevision,
-    fechaRevision: Date,
-  ): Promise<Date | null> {
-    const fecha = new Date(fechaRevision);
-
-    // RECHAZADO: No tiene vencimiento
-    if (resultado === ResultadoRevision.RECHAZADO) {
-      console.log('[calcularVencimiento] RECHAZADO → Sin vencimiento');
-      return null;
-    }
-
-    // CONDICIONAL: 60 días desde la fecha de revisión
-    if (resultado === ResultadoRevision.CONDICIONAL) {
-      const vencimiento = new Date(fecha);
-      vencimiento.setDate(vencimiento.getDate() + 60);
-      console.log(`[calcularVencimiento] CONDICIONAL → 60 días: ${vencimiento.toISOString()}`);
-      return vencimiento;
-    }
-
-    // APROBADO: Calcular según antigüedad del vehículo
-    const vehiculo = await this.vehiculosRepository.findOne({
-      where: { id: vehiculoId },
-    });
-
-    if (!vehiculo) {
-      throw new NotFoundException(`Vehículo con ID ${vehiculoId} no encontrado`);
-    }
-
-    // Calcular antigüedad del vehículo
-    const anioActual = new Date().getFullYear();
-    const antiguedad = anioActual - vehiculo.anio;
-    
-    console.log(`[calcularVencimiento] Vehículo año ${vehiculo.anio}, antigüedad: ${antiguedad} años`);
-
-    // Determinar vigencia base según antigüedad
-    let vigenciaAnios = antiguedad <= 7 ? 2 : 1;
-    console.log(`[calcularVencimiento] Vigencia base: ${vigenciaAnios} año(s)`);
-
-    // Verificar si hay revisión CONDICIONAL previa
-    const revisionCondicionalPrevia = await this.revisionesRepository.findOne({
-      where: {
-        vehiculoId,
-        resultado: ResultadoRevision.CONDICIONAL,
-      },
-      order: {
-        fechaRevision: 'DESC',
-      },
-    });
-
-    let diasADescontar = 0;
-    if (revisionCondicionalPrevia) {
-      // Calcular días transcurridos entre condicional y aprobado
-      const fechaCondicional = new Date(revisionCondicionalPrevia.fechaRevision);
-      diasADescontar = Math.floor(
-        (fecha.getTime() - fechaCondicional.getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      console.log('[calcularVencimiento] Condicional previa encontrada:');
-      console.log(`  Fecha condicional: ${fechaCondicional.toISOString()}`);
-      console.log(`  Fecha aprobado: ${fecha.toISOString()}`);
-      console.log(`  Días transcurridos a descontar: ${diasADescontar}`);
-    }
-
-    // Calcular fecha de vencimiento
-    const vencimiento = new Date(fecha);
-    vencimiento.setFullYear(vencimiento.getFullYear() + vigenciaAnios);
-    
-    // Restar días de condicional si aplica
-    if (diasADescontar > 0) {
-      vencimiento.setDate(vencimiento.getDate() - diasADescontar);
-      console.log(`[calcularVencimiento] APROBADO con ajuste por condicional → Vencimiento: ${vencimiento.toISOString()}`);
-    } else {
-      console.log(`[calcularVencimiento] APROBADO sin condicional previa → ${vigenciaAnios} año(s): ${vencimiento.toISOString()}`);
-    }
-
-    return vencimiento;
-  }
-
-  /**
    * Crear una nueva revisión técnica
    */
   async create(
@@ -158,13 +67,13 @@ export class RevisionesService {
       );
     }
 
-    // 🔧 Calcular fecha de vencimiento usando la nueva lógica
-    const fechaParaCalculo = fechaRevision ? new Date(fechaRevision) : new Date();
-    const fechaVencimiento = await this.calcularFechaVencimiento(
-      vehiculoId,
-      resultado,
-      fechaParaCalculo,
-    );
+    // Calcular fecha de vencimiento solo si es APROBADO (1 año)
+    let fechaVencimiento: Date | null = null;
+    if (resultado === ResultadoRevision.APROBADO) {
+      const fecha = fechaRevision ? new Date(fechaRevision) : new Date();
+      fechaVencimiento = new Date(fecha);
+      fechaVencimiento.setFullYear(fechaVencimiento.getFullYear() + 1);
+    }
 
     const revision = this.revisionesRepository.create({
       plantaId: plantaFinal,
@@ -181,6 +90,10 @@ export class RevisionesService {
     return this.revisionesRepository.save(revision);
   }
 
+  /**
+   * Asignar oblea a una revisión aprobada
+   * Solo revisiones APROBADAS sin oblea pueden recibir una
+   */
   /**
    * 🎯 Asignar oblea a una revisión aprobada
    * NUEVO FLUJO: Recibe el número de oblea escaneada/ingresada
@@ -270,25 +183,6 @@ export class RevisionesService {
     oblea.plantaId = revision.plantaId;
     oblea.revisionId = revisionId;
     await this.obleasRepository.save(oblea);
-
-    // 🎯 RECALCULAR FECHA DE VENCIMIENTO AL ASIGNAR OBLEA
-    // Este es el momento oficial de aprobación, no al crear la revisión
-    console.log(
-      `🔄 [ASIGNAR OBLEA] Recalculando fecha de vencimiento para revisión ${revisionId}`,
-    );
-    
-    const nuevaFechaVencimiento = await this.calcularFechaVencimiento(
-      revision.vehiculoId,
-      revision.resultado,
-      revision.fechaRevision,
-    );
-    
-    if (nuevaFechaVencimiento) {
-      revision.fechaVencimiento = nuevaFechaVencimiento;
-      console.log(
-        `✅ [ASIGNAR OBLEA] Nueva fecha de vencimiento: ${nuevaFechaVencimiento.toISOString()}`,
-      );
-    }
 
     // Asignar la oblea a la revisión
     revision.oleaId = oblea.id;
@@ -409,14 +303,16 @@ export class RevisionesService {
       );
     }
 
-    // Si cambia el resultado, recalcular fecha de vencimiento
-    if (updateRevisionDto.resultado && updateRevisionDto.resultado !== revision.resultado) {
-      const fechaVencimiento = await this.calcularFechaVencimiento(
-        revision.vehiculoId,
-        updateRevisionDto.resultado,
-        revision.fechaRevision,
+    // Si cambia a APROBADO, calcular fecha de vencimiento
+    if (
+      updateRevisionDto.resultado === ResultadoRevision.APROBADO &&
+      !revision.fechaVencimiento
+    ) {
+      const fecha = new Date();
+      revision.fechaVencimiento = new Date(fecha);
+      revision.fechaVencimiento.setFullYear(
+        revision.fechaVencimiento.getFullYear() + 1,
       );
-      revision.fechaVencimiento = fechaVencimiento;
     }
 
     Object.assign(revision, updateRevisionDto);

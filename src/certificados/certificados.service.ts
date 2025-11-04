@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { Certificado } from './entities/certificado.entity';
 import { Revision } from '../revisiones/entities/revision.entity';
+import { Oblea } from '../obleas/entities/oblea.entity';
 import * as QRCode from 'qrcode';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as crypto from 'crypto';
@@ -20,6 +21,8 @@ export class CertificadosService {
     private certificadosRepository: Repository<Certificado>,
     @InjectRepository(Revision)
     private revisionesRepository: Repository<Revision>,
+    @InjectRepository(Oblea)
+    private obleasRepository: Repository<Oblea>,
   ) {
     // Usar variable de entorno o generar secreto único
     this.QR_SECRET = process.env.QR_SECRET || this.generateSecret();
@@ -144,9 +147,12 @@ export class CertificadosService {
       throw new NotFoundException('Revisión no encontrada');
     }
 
-    if (!revision.oblea) {
+    // 🆕 PERMITIR CERTIFICADOS SIN OBLEA PARA CONDICIONALES
+    const esCondicional = revision.resultado === 'CONDICIONAL';
+    
+    if (!revision.oblea && !esCondicional) {
       throw new NotFoundException(
-        'No se puede generar certificado sin oblea asignada',
+        'No se puede generar certificado sin oblea asignada (solo CONDICIONALES)',
       );
     }
 
@@ -159,44 +165,46 @@ export class CertificadosService {
       return certificado;
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const timestamp = Date.now();
+    let urlVerificacion: string;
+    let codigoQr: string;
+    let oleaId: number | null = null;
 
-    // Generar firma criptográfica para prevenir falsificación
-    const signature = this.generateQRSignature({
-      oleaNumero: revision.oblea.numero,
-      revisionId: revision.id,
-      timestamp,
-    });
+    if (revision.oblea) {
+      // CERTIFICADO NORMAL CON OBLEA (APROBADO)
+      if (!revision.oblea.codigoQr) {
+        throw new Error('La oblea no tiene código QR generado');
+      }
+      urlVerificacion = revision.oblea.codigoQr;
+      oleaId = revision.oleaId;
+      console.log('[generarCertificado] 📄 Usando QR de la oblea:', urlVerificacion);
+    } else {
+      // CERTIFICADO CONDICIONAL SIN OBLEA (TEMPORAL)
+      const codigoTemporal = `COND-${revisionId}-${Date.now()}`;
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      urlVerificacion = `${frontendUrl}/verificar/${codigoTemporal}`;
+      console.log('[generarCertificado] ⚠️  Certificado CONDICIONAL sin oblea:', urlVerificacion);
+    }
 
-    // Código único firmado: QR-{oblea}-{timestamp}-{revisionId}-{signature}
-    const uniqueCode = `QR-${revision.oblea.numero}-${timestamp}-${revision.id}-${signature}`;
-    const urlVerificacion = `${frontendUrl}/verificar/${uniqueCode}`;
-
-    console.log('[generarCertificado] 🔒 Código firmado generado:', uniqueCode);
-    console.log('[generarCertificado] URL verificación:', urlVerificacion);
-
-    const codigoQr = await QRCode.toDataURL(urlVerificacion);
-
+    // Generar imagen QR
+    codigoQr = await QRCode.toDataURL(urlVerificacion);
     console.log('[generarCertificado] Código QR generado');
 
     certificado = this.certificadosRepository.create({
       revision,
-      oleaId: revision.oleaId,
+      oleaId: oleaId,
       urlVerificacion,
       codigoQr,
       fechaEmision: new Date(),
       numeroCertificado: `CERT-${revisionId}-${Date.now()}`,
-      fechaVencimiento: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      fechaVencimiento: revision.fechaVencimiento || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     });
 
     await this.certificadosRepository.save(certificado);
 
-    console.log('✅ Certificado guardado:', certificado.id);
+    console.log('✅ Certificado guardado:', certificado.id, esCondicional ? '(CONDICIONAL)' : '(NORMAL)');
 
     return certificado;
   }
-
   async generarPDF(revisionId: number): Promise<Buffer> {
     console.log('[generarPDF] Inicio - revisionId:', revisionId);
 
@@ -254,15 +262,43 @@ export class CertificadosService {
 
     let yPosition = height - 50;
 
-    page.drawText('CERTIFICADO DE REVISIÓN TÉCNICA VEHICULAR', {
+    // 🆕 Detectar si es CONDICIONAL
+    const esCondicional = revision.resultado === 'CONDICIONAL';
+    const titulo = esCondicional 
+      ? 'CERTIFICADO CONDICIONAL DE REVISIÓN TÉCNICA'
+      : 'CERTIFICADO DE REVISIÓN TÉCNICA VEHICULAR';
+    const tituloColor = esCondicional 
+      ? rgb(0.8, 0.5, 0)  // Naranja para condicional
+      : rgb(0, 0, 0.5);   // Azul para normal
+
+    page.drawText(titulo, {
       x: 50,
       y: yPosition,
-      size: 20,
+      size: esCondicional ? 18 : 20,
       font: fontBold,
-      color: rgb(0, 0, 0.5),
+      color: tituloColor,
     });
-
     yPosition -= 30;
+
+    // Mensaje especial para CONDICIONALES
+    if (esCondicional) {
+      page.drawText('[!] CERTIFICADO TEMPORAL - VÁLIDO POR 60 DÍAS', {
+        x: 50,
+        y: yPosition,
+        size: 12,
+        font: fontBold,
+        color: rgb(0.8, 0.3, 0),
+      });
+      yPosition -= 25;
+      page.drawText('Debe realizar nueva revisión antes del vencimiento', {
+        x: 50,
+        y: yPosition,
+        size: 10,
+        font,
+        color: rgb(0.6, 0.3, 0),
+      });
+      yPosition -= 30;
+    }
     page.drawText(`Provincia: ${revision.planta.camara.provincia}`, {
       x: 50,
       y: yPosition,
@@ -342,21 +378,34 @@ export class CertificadosService {
     });
     yPosition -= 40;
 
-    page.drawText('OBLEA', { x: 50, y: yPosition, size: 14, font: fontBold });
-    yPosition -= 25;
-    page.drawText(`Número: ${revision.oblea.numero}`, {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font,
-    });
-    yPosition -= 20;
+    // 🆕 Solo mostrar oblea si existe
+    if (revision.oblea) {
+      page.drawText('OBLEA', { x: 50, y: yPosition, size: 14, font: fontBold });
+      yPosition -= 25;
+      page.drawText(`Número: ${revision.oblea.numero}`, {
+        x: 50,
+        y: yPosition,
+        size: 12,
+        font,
+      });
+      yPosition -= 20;
 
-    if (revision.oblea.fechaAsignacion) {
-      page.drawText(
-        `Fecha de asignación: ${new Date(revision.oblea.fechaAsignacion).toLocaleDateString('es-AR')}`,
-        { x: 50, y: yPosition, size: 12, font },
-      );
+      if (revision.oblea.fechaAsignacion) {
+        page.drawText(
+          `Fecha de asignación: ${new Date(revision.oblea.fechaAsignacion).toLocaleDateString('es-AR')}`,
+          { x: 50, y: yPosition, size: 12, font },
+        );
+        yPosition -= 30;
+      }
+    } else {
+      // Para CONDICIONALES sin oblea
+      page.drawText('OBLEA: Sin asignar (Certificado Temporal)', {
+        x: 50,
+        y: yPosition,
+        size: 12,
+        font,
+        color: rgb(0.6, 0.3, 0),
+      });
       yPosition -= 30;
     }
 
@@ -457,10 +506,118 @@ export class CertificadosService {
   }
 
   async verificarPorCodigoQr(codigoQr: string) {
-    console.log('[verificarPorCodigoQr] 🔍 Verificando certificado:', codigoQr);
+    console.log('[verificarPorCodigoQr] 🔍 Verificando código:', codigoQr);
 
+    // 🆕 DETECTAR TIPO DE CÓDIGO
+    if (codigoQr.startsWith('COND-')) {
+      // ═══════════════════════════════════════════════════════════════
+      // CERTIFICADO CONDICIONAL TEMPORAL (formato: COND-{revisionId}-{timestamp})
+      // ═══════════════════════════════════════════════════════════════
+      console.log('[verificarPorCodigoQr] 🟠 Detectado certificado CONDICIONAL temporal');
+      
+      const certificado = await this.certificadosRepository
+        .createQueryBuilder('certificado')
+        .leftJoinAndSelect('certificado.revision', 'revision')
+        .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
+        .leftJoinAndSelect('revision.oblea', 'oblea')
+        .leftJoinAndSelect('revision.planta', 'planta')
+        .leftJoinAndSelect('planta.camara', 'camara')
+        .where('certificado.urlVerificacion LIKE :pattern', {
+          pattern: `%${codigoQr}%`,
+        })
+        .getOne();
+
+      if (!certificado) {
+        console.log('[verificarPorCodigoQr] ❌ Certificado CONDICIONAL no encontrado');
+        throw new NotFoundException('Certificado no encontrado');
+      }
+
+      console.log('[verificarPorCodigoQr] ✅ Certificado CONDICIONAL encontrado:', certificado.numeroCertificado);
+      const { dominio, marca, modelo, anio } = certificado.revision.vehiculo;
+      
+      return {
+        valido: true,
+        certificado: {
+          numero: certificado.numeroCertificado,
+          fechaEmision: certificado.fechaEmision,
+          fechaVencimiento: certificado.fechaVencimiento,
+        },
+        vehiculo: { dominio, marca, modelo, anio },
+        revision: {
+          fecha: certificado.revision.fechaRevision,
+          resultado: certificado.revision.resultado,
+          planta: certificado.revision.planta.nombre,
+          provincia: certificado.revision.planta.camara.provincia,
+        },
+        oblea: null, // CONDICIONALES no tienen oblea
+      };
+    }
+
+    if (codigoQr.startsWith('OBL-')) {
+      // ═══════════════════════════════════════════════════════════════
+      // FORMATO OBL (nuevo): OBL-{numero}-{hash16}
+      // Buscar la oblea en la base de datos y luego el certificado asociado
+      // ═══════════════════════════════════════════════════════════════
+      console.log('[verificarPorCodigoQr] 🆕 Detectado formato OBL (búsqueda por oblea)');
+      
+      // Buscar el certificado por el código de la oblea
+      const certificado = await this.certificadosRepository
+        .createQueryBuilder('certificado')
+        .leftJoinAndSelect('certificado.revision', 'revision')
+        .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
+        .leftJoinAndSelect('revision.oblea', 'oblea')
+        .leftJoinAndSelect('revision.planta', 'planta')
+        .leftJoinAndSelect('planta.camara', 'camara')
+        .where('oblea.codigoQr LIKE :pattern', {
+          pattern: `%${codigoQr}%`,
+        })
+        .getOne();
+
+      if (!certificado) {
+        console.log('[verificarPorCodigoQr] ❌ Certificado con oblea OBL no encontrado');
+        throw new NotFoundException('Certificado no encontrado para este código de oblea');
+      }
+
+      console.log('[verificarPorCodigoQr] ✅ Certificado encontrado para oblea:', certificado.numeroCertificado);
+      
+      // Validar vigencia
+      const ahora = new Date();
+      const vencido = certificado.fechaVencimiento && ahora > certificado.fechaVencimiento;
+      
+      if (vencido) {
+        console.log('[verificarPorCodigoQr] ⚠️ Certificado VENCIDO');
+      }
+
+      const { dominio, marca, modelo, anio } = certificado.revision.vehiculo;
+      
+      return {
+        valido: !vencido,
+        vencido,
+        certificado: {
+          numero: certificado.numeroCertificado,
+          fechaEmision: certificado.fechaEmision,
+          fechaVencimiento: certificado.fechaVencimiento,
+        },
+        vehiculo: { dominio, marca, modelo, anio },
+        revision: {
+          fecha: certificado.revision.fechaRevision,
+          resultado: certificado.revision.resultado,
+          planta: certificado.revision.planta.nombre,
+          provincia: certificado.revision.planta.camara.provincia,
+        },
+        oblea: {
+          numero: certificado.revision.oblea.numero,
+          codigo: certificado.revision.oblea.codigoQr,
+        },
+      };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FORMATO QR (legacy): QR-{oleaNumero}-{timestamp}-{revisionId}-{signature}
+    // ═══════════════════════════════════════════════════════════════
+    console.log('[verificarPorCodigoQr] 📜 Detectado formato QR legacy (con validación de firma)');
+    
     // Extraer componentes del código QR
-    // Formato: QR-{oleaNumero}-{timestamp}-{revisionId}-{signature}
     const parts = codigoQr.split('-');
     if (parts.length !== 5 || parts[0] !== 'QR') {
       console.error('[verificarPorCodigoQr] ❌ Formato de código inválido');
@@ -472,8 +629,7 @@ export class CertificadosService {
     const revisionId = parseInt(parts[3]);
     const providedSignature = parts[4];
 
-    // Buscar certificado por URL de verificación (búsqueda parcial)
-    // Buscaremos por el patrón base y luego validaremos la firma
+    // Buscar certificado
     const searchPattern = `%-${timestamp}-${revisionId}-%`;
     const certificado = await this.certificadosRepository
       .createQueryBuilder('certificado')
@@ -488,17 +644,11 @@ export class CertificadosService {
       .getOne();
 
     if (!certificado) {
-      console.log(
-        '[verificarPorCodigoQr] ❌ Certificado no encontrado:',
-        codigoQr,
-      );
+      console.log('[verificarPorCodigoQr] ❌ Certificado no encontrado:', codigoQr);
       throw new NotFoundException('Certificado no encontrado');
     }
 
-    console.log(
-      '[verificarPorCodigoQr] ✅ Certificado encontrado:',
-      certificado.numeroCertificado,
-    );
+    console.log('[verificarPorCodigoQr] ✅ Certificado encontrado:', certificado.numeroCertificado);
 
     // 🔒 VALIDACIÓN 1: Verificar firma criptográfica
     const expectedSignature = this.generateQRSignature({
@@ -508,9 +658,7 @@ export class CertificadosService {
     });
 
     if (providedSignature !== expectedSignature) {
-      console.error(
-        '[verificarPorCodigoQr] 🚨 ¡¡¡ALERTA DE SEGURIDAD - INTENTO DE FRAUDE DETECTADO!!!',
-      );
+      console.error('[verificarPorCodigoQr] 🚨 ¡¡¡ALERTA DE SEGURIDAD - INTENTO DE FRAUDE DETECTADO!!!');
       console.error('  ⚠️  Firma inválida o código QR modificado');
       console.error('  📋 Certificado ID:', certificado.id);
       console.error('  📋 Número certificado:', certificado.numeroCertificado);
@@ -520,8 +668,7 @@ export class CertificadosService {
       console.error('  🔐 Firma proporcionada:', providedSignature);
       console.error('  🔐 Firma esperada:', expectedSignature);
       console.error('  ⏰ Timestamp del intento:', new Date().toISOString());
-      console.error('  📍 IP (si disponible): [TODO: agregar desde request]');
-
+      
       throw new UnauthorizedException(
         'Código QR inválido o ha sido modificado. Este incidente ha sido registrado y será investigado.',
       );
@@ -530,29 +677,18 @@ export class CertificadosService {
     console.log('[verificarPorCodigoQr] ✅ Firma criptográfica válida');
 
     // 🔒 VALIDACIÓN 2: Verificar vigencia del certificado
-    const validityCheck = this.validateCertificateValidity(certificado);
-    if (!validityCheck.valid) {
-      console.warn(
-        '[verificarPorCodigoQr] ⚠️  Certificado no vigente:',
-        validityCheck.reason,
-      );
-      return {
-        valido: false,
-        razon: validityCheck.reason,
-        certificado: {
-          numero: certificado.numeroCertificado,
-          fechaEmision: certificado.fechaEmision,
-          fechaVencimiento: certificado.fechaVencimiento,
-        },
-      };
-    }
+    const ahora = new Date();
+    const vencido = certificado.fechaVencimiento && ahora > certificado.fechaVencimiento;
 
-    console.log('[verificarPorCodigoQr] ✅ Certificado vigente y autenticado');
+    if (vencido) {
+      console.log('[verificarPorCodigoQr] ⚠️ Certificado VENCIDO');
+    }
 
     const { dominio, marca, modelo, anio } = certificado.revision.vehiculo;
 
     return {
-      valido: true,
+      valido: !vencido,
+      vencido,
       certificado: {
         numero: certificado.numeroCertificado,
         fechaEmision: certificado.fechaEmision,
@@ -565,7 +701,10 @@ export class CertificadosService {
         planta: certificado.revision.planta.nombre,
         provincia: certificado.revision.planta.camara.provincia,
       },
-      oblea: { numero: certificado.revision.oblea.numero },
+      oblea: {
+        numero: certificado.revision.oblea?.numero,
+        codigo: certificado.revision.oblea?.codigoQr,
+      },
     };
   }
 
