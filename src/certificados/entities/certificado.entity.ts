@@ -18,6 +18,8 @@ import { Oblea } from '../../obleas/entities/oblea.entity';
 @Entity('certificados')
 @Index(['numeroCertificado'], { unique: true })
 @Index(['codigoQr'], { unique: true })
+@Index(['revisionId']) // Índice para búsquedas por revisión
+@Index(['oleaId']) // Índice para búsquedas por oblea
 export class Certificado {
   @PrimaryGeneratedColumn()
   id: number;

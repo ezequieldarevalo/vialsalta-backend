@@ -56,4 +56,8 @@ export class CreateVehiculoDto {
   @IsOptional()
   @IsDateString()
   fechaPrimeraMatriculacion?: string;
+
+  @IsOptional()
+  @IsString()
+  fotoUrl?: string;
 }

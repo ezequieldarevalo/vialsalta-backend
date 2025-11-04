@@ -9,7 +9,10 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { TipoVehiculo as TipoVehiculoEnum, TipoCombustible } from '../../common/enums';
+import {
+  TipoVehiculo as TipoVehiculoEnum,
+  TipoCombustible,
+} from '../../common/enums';
 import { Revision } from '../../revisiones/entities/revision.entity';
 import { TipoVehiculo as TipoVehiculoEntity } from '../../tipos-vehiculo/entities/tipo-vehiculo.entity';
 
@@ -19,6 +22,9 @@ import { TipoVehiculo as TipoVehiculoEntity } from '../../tipos-vehiculo/entitie
  */
 @Entity('vehiculos')
 @Index(['dominio'], { unique: true })
+@Index(['numeroChasis']) // Índice para búsquedas por chasis
+@Index(['numeroMotor']) // Índice para búsquedas por motor
+@Index(['marca', 'modelo']) // Índice compuesto para búsquedas por marca/modelo
 export class Vehiculo {
   @PrimaryGeneratedColumn()
   id: number;
@@ -64,6 +70,9 @@ export class Vehiculo {
 
   @Column({ type: 'date', nullable: true })
   fechaPrimeraMatriculacion?: Date;
+
+  @Column({ type: 'text', nullable: true })
+  fotoUrl?: string; // URL de la foto del vehículo (almacenada en Storage)
 
   // Relación con revisiones
   @OneToMany(() => Revision, (revision) => revision.vehiculo)

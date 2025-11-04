@@ -1,7 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { WinstonModule } from 'nest-winston';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PublicModule } from './public/public.module';
@@ -19,12 +21,26 @@ import { TiposVehiculoModule } from './tipos-vehiculo/tipos-vehiculo.module';
 import { EstadisticasModule } from './estadisticas/estadisticas.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 import { DemoModule } from './demo/demo.module';
 import { PaymentsModule } from './payments/payments.module';
+import { StorageModule } from './storage/storage.module';
+import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
+import { winstonConfig } from './common/logger/winston.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Logging profesional con Winston
+    WinstonModule.forRoot(winstonConfig),
+    // Rate Limiting - Protección contra DDoS
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 60 segundos
+        limit: 100, // 100 requests por minuto por IP (global)
+      },
+    ]),
+    StorageModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -60,6 +76,11 @@ import { PaymentsModule } from './payments/payments.module';
   controllers: [AppController],
   providers: [
     AppService,
+    // Guard global de Rate Limiting personalizado por roles
+    {
+      provide: APP_GUARD,
+      useClass: CustomThrottlerGuard,
+    },
     // Guard global de JWT - Protege todos los endpoints excepto los marcados con @Public()
     {
       provide: APP_GUARD,
@@ -72,4 +93,9 @@ import { PaymentsModule } from './payments/payments.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Aplicar middleware de logging HTTP a todas las rutas
+    consumer.apply(HttpLoggerMiddleware).forRoutes('*');
+  }
+}

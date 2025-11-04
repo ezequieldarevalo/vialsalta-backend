@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { ResultadoRevision } from '../../common/enums';
 import { Planta } from '../../plantas/entities/planta.entity';
@@ -18,6 +19,12 @@ import { Oblea } from '../../obleas/entities/oblea.entity';
  * Representa una revisión realizada a un vehículo
  */
 @Entity('revisiones')
+@Index(['vehiculoId']) // Índice para búsquedas por vehículo
+@Index(['plantaId']) // Índice para búsquedas por planta
+@Index(['resultado']) // Índice para filtrar por resultado (APROBADA/RECHAZADA/CONDICIONAL)
+@Index(['fechaRevision']) // Índice para búsquedas por fecha
+@Index(['plantaId', 'fechaRevision']) // Índice compuesto para estadísticas por planta y fecha
+@Index(['vehiculoId', 'fechaRevision']) // Índice compuesto para historial de vehículo
 export class Revision {
   @PrimaryGeneratedColumn()
   id: number;
