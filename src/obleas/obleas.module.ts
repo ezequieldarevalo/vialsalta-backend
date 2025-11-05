@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Oblea } from './entities/oblea.entity';
 
 /**
  * Módulo de Obleas
+ * Entity migrated to Prisma - see prisma/schema.prisma
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Oblea])],
-  exports: [TypeOrmModule],
+  imports: [],
+  exports: [],
 })
 export class ObleasModule {}

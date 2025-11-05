@@ -8,37 +8,51 @@ import {
   Body,
 } from '@nestjs/common';
 import { MunicipiosService } from './municipios.service';
-import { Municipio } from './entities/municipio.entity';
 
 @Controller('municipios')
 export class MunicipiosController {
   constructor(private readonly municipiosService: MunicipiosService) {}
 
   @Get()
-  findAll(): Promise<Municipio[]> {
+  findAll() {
     return this.municipiosService.findAll();
   }
 
   @Get(':id')
-  findOne(@Param('id') id: number): Promise<Municipio | null> {
+  findOne(@Param('id') id: number) {
     return this.municipiosService.findOne(Number(id));
   }
 
   @Post()
-  create(@Body() data: Partial<Municipio>): Promise<Municipio> {
+  create(
+    @Body()
+    data: {
+      camaraId: number;
+      nombre: string;
+      codigo: string;
+      porcentajeReparto?: number;
+      activo?: boolean;
+    },
+  ) {
     return this.municipiosService.create(data);
   }
 
   @Put(':id')
   update(
     @Param('id') id: number,
-    @Body() data: Partial<Municipio>,
-  ): Promise<Municipio | null> {
+    @Body()
+    data: {
+      nombre?: string;
+      codigo?: string;
+      porcentajeReparto?: number;
+      activo?: boolean;
+    },
+  ) {
     return this.municipiosService.update(Number(id), data);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: number): Promise<void> {
+  remove(@Param('id') id: number) {
     return this.municipiosService.remove(Number(id));
   }
 }

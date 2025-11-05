@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model bloques_obleas {
+  id              Int                        @id(map: "PK_021b684986a046e5e925c6f1ddc") @default(autoincrement())
+  codigo          String                     @unique(map: "UQ_806d0a8f20d4597b9e4841147b4") @db.VarChar(50)
+  camaraId        Int?
+  plantaId        Int?
+  numeroInicio    Int
+  numeroFin       Int
+  cantidadTotal   Int
+  estado          bloques_obleas_estado_enum @default(CREADO)
+  createdAt       DateTime                   @default(now()) @db.Timestamp(6)
+  fechaAsignacion DateTime?                  @db.Timestamp(6)
+  updatedAt       DateTime                   @default(now()) @db.Timestamp(6)
+  camaras         camaras?                   @relation(fields: [camaraId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_1ec065e2fbee59d7647a512a3d6")
+  plantas         plantas?                   @relation(fields: [plantaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_d925294799a98aaf0fbf37b5bb2")
+  obleas          obleas[]
+
+  @@index([plantaId], map: "IDX_bloques_planta")
+  @@index([estado], map: "IDX_bloques_estado")
+  @@index([plantaId, estado], map: "IDX_bloques_planta_estado")
+}
+
+model camaras {
+  id             Int              @id(map: "PK_9c0ca0dd2ed1835b925992ce59b") @default(autoincrement())
+  nombre         String           @db.VarChar(200)
+  provincia      String           @db.VarChar(100)
+  codigo         String           @unique(map: "UQ_3755965c3d4760bc314955e7a8f") @db.VarChar(10)
+  rangoInicio    Int
+  rangoFin       Int
+  cuit           String           @unique(map: "UQ_444e4963beb8edcf03d0cb9618b") @db.VarChar(20)
+  direccion      String?
+  telefono       String?          @db.VarChar(100)
+  email          String?          @db.VarChar(200)
+  activa         Boolean          @default(true)
+  createdAt      DateTime         @default(now()) @db.Timestamp(6)
+  updatedAt      DateTime         @default(now()) @db.Timestamp(6)
+  bloques_obleas bloques_obleas[]
+  municipios     municipios[]
+  plantas        plantas[]
+  users          users[]
+}
+
+model certificados {
+  id                Int         @id(map: "PK_e9b232ca7a16db08667f021708f") @default(autoincrement())
+  revisionId        Int?        @unique(map: "UQ_75095ffd017e155d4a7e92b6b3d")
+  oleaId            Int?        @unique(map: "UQ_32b8b45417a575c0cab75176f15")
+  numeroCertificado String      @unique(map: "IDX_2d6e56deda8557c7ba05726d8c") @db.VarChar(50)
+  codigoQr          String      @unique(map: "IDX_c7591eafe7b0918f76249439ef")
+  urlPdf            String?
+  urlVerificacion   String?
+  fechaEmision      DateTime    @db.Timestamp(6)
+  fechaVencimiento  DateTime    @db.Timestamp(6)
+  createdAt         DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime    @default(now()) @db.Timestamp(6)
+  obleas            obleas?     @relation(fields: [oleaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_32b8b45417a575c0cab75176f15")
+  revisiones        revisiones? @relation(fields: [revisionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_75095ffd017e155d4a7e92b6b3d")
+
+  @@index([oleaId], map: "IDX_32b8b45417a575c0cab75176f1")
+  @@index([revisionId], map: "IDX_75095ffd017e155d4a7e92b6b3")
+  @@index([fechaEmision], map: "IDX_certificados_fecha_emision")
+  @@index([fechaVencimiento], map: "IDX_certificados_fecha_vencimiento")
+}
+
+model municipios {
+  id                Int       @id(map: "PK_10d04b4b4e39ba40240b61e919d") @default(autoincrement())
+  camaraId          Int
+  nombre            String    @db.VarChar(200)
+  codigo            String    @unique(map: "UQ_ca61f54e17be66859316ac5d87b") @db.VarChar(50)
+  porcentajeReparto Decimal   @default(0) @db.Decimal(5, 2)
+  activo            Boolean   @default(true)
+  createdAt         DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime  @default(now()) @db.Timestamp(6)
+  camaras           camaras   @relation(fields: [camaraId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_67075bad8e7004eebd259a4fea7")
+  plantas           plantas[]
+  users             users[]
+}
+
+model obleas {
+  id              Int                @id(map: "PK_3b76b7f358755f77318988f1833") @default(autoincrement())
+  bloqueId        Int
+  camaraId        Int
+  plantaId        Int?
+  revisionId      Int?
+  numero          Int                @unique(map: "IDX_79ab7d14842ea7a96f0b96d3de")
+  codigoQr        String?            @unique(map: "IDX_70b5f3f8be60c6331f1c408bbb")
+  estado          obleas_estado_enum @default(DISPONIBLE)
+  createdAt       DateTime           @default(now()) @db.Timestamp(6)
+  fechaAsignacion DateTime?          @db.Timestamp(6)
+  fechaEmision    DateTime?          @db.Timestamp(6)
+  updatedAt       DateTime           @default(now()) @db.Timestamp(6)
+  qrActivo        Boolean            @default(false)
+  certificados    certificados?
+  plantas         plantas?           @relation(fields: [plantaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_625237af1fd27377bb890c0ce2a")
+  bloques_obleas  bloques_obleas     @relation(fields: [bloqueId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_d6e94bb29a22bf76c2e7e0a9de7")
+  revisiones      revisiones[]
+
+  @@index([bloqueId], map: "IDX_obleas_bloque")
+  @@index([plantaId], map: "IDX_obleas_planta")
+  @@index([estado], map: "IDX_obleas_estado")
+  @@index([plantaId, estado], map: "IDX_obleas_planta_estado")
+}
+
+model payments {
+  id                   Int                  @id(map: "PK_197ab7af18c93fbb0c9b28b4a59") @default(autoincrement())
+  subscriptionId       Int
+  mercadopagoPaymentId String               @db.VarChar
+  status               payments_status_enum @default(PENDING)
+  amount               Decimal              @db.Decimal(10, 2)
+  currency             String               @default("ARS") @db.VarChar
+  paymentMethod        String?              @db.VarChar
+  paidAt               DateTime?            @db.Timestamp(6)
+  metadata             Json?                @db.Json
+  createdAt            DateTime             @default(now()) @db.Timestamp(6)
+  subscriptions        subscriptions        @relation(fields: [subscriptionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_2017d0cbfdbfec6b1b388e6aa08")
+}
+
+model plantas {
+  id                 Int              @id(map: "PK_7ae4f0f3ac4d583495b785b5761") @default(autoincrement())
+  camaraId           Int
+  municipioId        Int
+  nombre             String           @db.VarChar(200)
+  cuit               String?          @db.VarChar(15)
+  direccion          String?
+  codigoHabilitacion String           @unique(map: "UQ_9058062c42b1c0e64aa1ec7463d") @db.VarChar(100)
+  telefono           String?          @db.VarChar(100)
+  email              String?          @db.VarChar(200)
+  activa             Boolean          @default(true)
+  createdAt          DateTime         @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime         @default(now()) @db.Timestamp(6)
+  bloques_obleas     bloques_obleas[]
+  obleas             obleas[]
+  camaras            camaras          @relation(fields: [camaraId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_6617cbce2c59d7dd7ab385e19e4")
+  municipios         municipios       @relation(fields: [municipioId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_b4811f1af942b1d29b53c967304")
+  revisiones         revisiones[]
+  subscriptions      subscriptions[]
+  users              users[]
+}
+
+model revisiones {
+  id               Int                       @id(map: "PK_7debeb2acc63fbba56023a922be") @default(autoincrement())
+  plantaId         Int
+  vehiculoId       Int
+  oleaId           Int?
+  usuarioId        Int
+  resultado        revisiones_resultado_enum
+  fechaRevision    DateTime                  @db.Timestamp(6)
+  fechaVencimiento DateTime?                 @db.Timestamp(6)
+  observaciones    String?
+  urlFoto          String?
+  kilometraje      Decimal?                  @db.Decimal(10, 2)
+  createdAt        DateTime                  @default(now()) @db.Timestamp(6)
+  updatedAt        DateTime                  @default(now()) @db.Timestamp(6)
+  certificados     certificados?
+  users            users                     @relation(fields: [usuarioId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_2d26c7b319716fdf7237c9e3f3a")
+  vehiculos        vehiculos                 @relation(fields: [vehiculoId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_df95fa5670bc60fd10fc6540a2c")
+  obleas           obleas?                   @relation(fields: [oleaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_e198e20293c8f98439aaaea07f1")
+  plantas          plantas                   @relation(fields: [plantaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_ffd0b345c07d2dbe7d61025c659")
+
+  @@index([fechaRevision], map: "IDX_2b05dd264f9a87ed36a7c02099")
+  @@index([resultado], map: "IDX_32cdbb61e1baeacac9b9fab072")
+  @@index([plantaId, fechaRevision], map: "IDX_57e458f37226fe709c2995336e")
+  @@index([vehiculoId, fechaRevision], map: "IDX_cf36794e76a8e0b7e9690bc9b0")
+  @@index([vehiculoId], map: "IDX_df95fa5670bc60fd10fc6540a2")
+  @@index([plantaId], map: "IDX_ffd0b345c07d2dbe7d61025c65")
+}
+
+model subscriptions {
+  id                        Int                              @id(map: "PK_a87248d73155605cf782be9ee5e") @default(autoincrement())
+  plantaId                  Int
+  status                    subscriptions_status_enum        @default(PENDING)
+  billingPeriod             subscriptions_billingperiod_enum @default(MONTHLY)
+  amount                    Decimal                          @db.Decimal(10, 2)
+  mercadopagoSubscriptionId String?                          @db.VarChar
+  mercadopagoCustomerId     String?                          @db.VarChar
+  currentPeriodStart        DateTime?                        @db.Timestamp(6)
+  currentPeriodEnd          DateTime?                        @db.Timestamp(6)
+  trialEnd                  DateTime?                        @db.Timestamp(6)
+  cancelledAt               DateTime?                        @db.Timestamp(6)
+  autoRenew                 Boolean                          @default(true)
+  createdAt                 DateTime                         @default(now()) @db.Timestamp(6)
+  updatedAt                 DateTime                         @default(now()) @db.Timestamp(6)
+  payments                  payments[]
+  plantas                   plantas                          @relation(fields: [plantaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_f07fcc6dd9b5444a9d456d96d15")
+}
+
+model tipos_vehiculo {
+  id          Int         @id(map: "PK_e6238f9d960a7784d6ad7b3490e") @default(autoincrement())
+  nombre      String      @unique(map: "UQ_e45219bf25cdb1ef3d4dbc1b3f1") @db.VarChar
+  descripcion String?
+  activo      Boolean     @default(true)
+  createdAt   DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime    @default(now()) @db.Timestamp(6)
+  vehiculos   vehiculos[]
+}
+
+model users {
+  id          Int             @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(autoincrement())
+  camaraId    Int?
+  plantaId    Int?
+  municipioId Int?
+  username    String          @unique(map: "UQ_fe0bb3f6520ee0469504521e710") @db.VarChar(100)
+  email       String          @unique(map: "UQ_97672ac88f789774dd47f7c8be3") @db.VarChar(200)
+  nombre      String?         @db.VarChar(200)
+  password    String
+  role        users_role_enum
+  activo      Boolean         @default(true)
+  createdAt   DateTime        @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime        @default(now()) @db.Timestamp(6)
+  revisiones  revisiones[]
+  municipios  municipios?     @relation(fields: [municipioId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_1228f81c51d76529e7be973498f")
+  plantas     plantas?        @relation(fields: [plantaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_359d8c48c1623f1b7b3cea6121a")
+  camaras     camaras?        @relation(fields: [camaraId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_c2bcff0413d8b089297b9a4d389")
+
+  @@index([email], map: "IDX_97672ac88f789774dd47f7c8be")
+  @@index([username], map: "IDX_fe0bb3f6520ee0469504521e71")
+}
+
+model vehiculos {
+  id                        Int                        @id(map: "PK_bc0b75baae377e599cd46b502e1") @default(autoincrement())
+  dominio                   String                     @unique(map: "IDX_7c11284e3ce97494f3f2e69477") @db.VarChar(10)
+  marca                     String                     @db.VarChar(100)
+  modelo                    String                     @db.VarChar(100)
+  anio                      Int
+  tipo                      vehiculos_tipo_enum?
+  combustible               vehiculos_combustible_enum
+  numeroMotor               String?                    @db.VarChar(100)
+  numeroChasis              String?                    @db.VarChar(100)
+  createdAt                 DateTime                   @default(now()) @db.Timestamp(6)
+  updatedAt                 DateTime                   @default(now()) @db.Timestamp(6)
+  tipoVehiculoId            Int?
+  fechaPrimeraMatriculacion DateTime?                  @db.Date
+  fotoUrl                   String?
+  revisiones                revisiones[]
+  tipos_vehiculo            tipos_vehiculo?            @relation(fields: [tipoVehiculoId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_337bd306a1bc97d308adfe2574f")
+
+  @@index([numeroChasis], map: "IDX_5ef8dcdc990fab4cb2f4839ff4")
+  @@index([numeroMotor], map: "IDX_e3cc89e03fd94193d5306d4b5f")
+  @@index([marca, modelo], map: "IDX_f1a7f9e9a4aa3883906ad537ee")
+  @@index([tipoVehiculoId], map: "IDX_vehiculos_tipo_vehiculo")
+}
+
+enum bloques_obleas_estado_enum {
+  CREADO
+  ASIGNADO
+  EN_USO
+  AGOTADO
+  ANULADO
+}
+
+enum obleas_estado_enum {
+  DISPONIBLE
+  ASIGNADA
+  EMITIDA
+  ANULADA
+}
+
+enum payments_status_enum {
+  PENDING
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+enum revisiones_resultado_enum {
+  APROBADO
+  RECHAZADO
+  CONDICIONAL
+}
+
+enum subscriptions_billingperiod_enum {
+  MONTHLY
+  ANNUAL
+}
+
+enum subscriptions_status_enum {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  CANCELLED
+}
+
+enum users_role_enum {
+  CAMARA
+  PLANTA_ADMIN
+  PLANTA_OPERADOR
+  MUNICIPIO
+}
+
+enum vehiculos_combustible_enum {
+  NAFTA
+  DIESEL
+  GNC
+  ELECTRICO
+  HIBRIDO
+}
+
+enum vehiculos_tipo_enum {
+  AUTOMOVIL
+  CAMIONETA
+  CAMION
+  MOTO
+  COLECTIVO
+  OTRO
+}

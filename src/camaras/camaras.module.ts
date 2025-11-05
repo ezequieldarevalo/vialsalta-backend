@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Camara } from './entities/camara.entity';
 
 /**
  * Módulo de Cámaras Provinciales
+ * Entity migrated to Prisma - see prisma/schema.prisma
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Camara])],
-  exports: [TypeOrmModule],
+  imports: [],
+  exports: [],
 })
 export class CamarasModule {}

@@ -89,6 +89,10 @@ export class AuthService {
    */
   async registerPlantaPublic(dto: RegisterPlantaPublicDto) {
     // 1. Crear la planta
+    // Generar código de habilitación temporal
+    const timestamp = Date.now();
+    const codigoHabilitacion = `TEMP-${dto.cuit}-${timestamp}`;
+
     const planta = await this.plantas.create({
       nombre: dto.nombrePlanta,
       cuit: dto.cuit,
@@ -96,6 +100,8 @@ export class AuthService {
       telefono: dto.telefono,
       email: dto.email,
       camaraId: dto.camaraId,
+      municipioId: 1, // TODO: Debería venir del DTO o ser asignado por la cámara
+      codigoHabilitacion,
     });
 
     // 2. Crear usuario admin de la planta

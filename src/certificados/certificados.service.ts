@@ -3,11 +3,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Certificado } from './entities/certificado.entity';
-import { Revision } from '../revisiones/entities/revision.entity';
-import { Oblea } from '../obleas/entities/oblea.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import * as QRCode from 'qrcode';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as crypto from 'crypto';
@@ -17,14 +13,7 @@ import axios from 'axios';
 export class CertificadosService {
   private readonly QR_SECRET: string;
 
-  constructor(
-    @InjectRepository(Certificado)
-    private certificadosRepository: Repository<Certificado>,
-    @InjectRepository(Revision)
-    private revisionesRepository: Repository<Revision>,
-    @InjectRepository(Oblea)
-    private obleasRepository: Repository<Oblea>,
-  ) {
+  constructor(private readonly prisma: PrismaService) {
     // Usar variable de entorno o generar secreto único
     this.QR_SECRET = process.env.QR_SECRET || this.generateSecret();
     if (!process.env.QR_SECRET) {
@@ -61,10 +50,7 @@ export class CertificadosService {
   /**
    * Valida la firma de un código QR
    */
-  private validateQRSignature(
-    uniqueCode: string,
-    certificado: Certificado,
-  ): boolean {
+  private validateQRSignature(uniqueCode: string, certificado: any): boolean {
     try {
       // Formato esperado: QR-{oleaNumero}-{timestamp}-{revisionId}-{signature}
       const parts = uniqueCode.split('-');
@@ -106,7 +92,7 @@ export class CertificadosService {
   /**
    * Valida que el certificado esté vigente
    */
-  private validateCertificateValidity(certificado: Certificado): {
+  private validateCertificateValidity(certificado: any): {
     valid: boolean;
     reason?: string;
   } {
@@ -138,10 +124,19 @@ export class CertificadosService {
     return { valid: true };
   }
 
-  async generarCertificado(revisionId: number): Promise<Certificado> {
-    const revision = await this.revisionesRepository.findOne({
+  async generarCertificado(revisionId: number): Promise<any> {
+    const revision = await this.prisma.revisiones.findUnique({
       where: { id: revisionId },
-      relations: ['vehiculo', 'oblea', 'planta', 'usuario', 'planta.camara'],
+      include: {
+        vehiculos: true,
+        obleas: true,
+        plantas: {
+          include: {
+            camaras: true,
+          },
+        },
+        users: true,
+      },
     });
 
     if (!revision) {
@@ -151,14 +146,14 @@ export class CertificadosService {
     // 🆕 PERMITIR CERTIFICADOS SIN OBLEA PARA CONDICIONALES
     const esCondicional = revision.resultado === 'CONDICIONAL';
 
-    if (!revision.oblea && !esCondicional) {
+    if (!revision.obleas && !esCondicional) {
       throw new NotFoundException(
         'No se puede generar certificado sin oblea asignada (solo CONDICIONALES)',
       );
     }
 
-    let certificado = await this.certificadosRepository.findOne({
-      where: { revision: { id: revisionId } },
+    let certificado = await this.prisma.certificados.findFirst({
+      where: { revisionId: revisionId },
     });
 
     if (certificado) {
@@ -170,12 +165,12 @@ export class CertificadosService {
     let codigoQr: string;
     let oleaId: number | null = null;
 
-    if (revision.oblea) {
+    if (revision.obleas) {
       // CERTIFICADO NORMAL CON OBLEA (APROBADO)
-      if (!revision.oblea.codigoQr) {
+      if (!revision.obleas.codigoQr) {
         throw new Error('La oblea no tiene código QR generado');
       }
-      urlVerificacion = revision.oblea.codigoQr;
+      urlVerificacion = revision.obleas.codigoQr;
       oleaId = revision.oleaId;
       console.log(
         '[generarCertificado] 📄 Usando QR de la oblea:',
@@ -196,19 +191,19 @@ export class CertificadosService {
     codigoQr = await QRCode.toDataURL(urlVerificacion);
     console.log('[generarCertificado] Código QR generado');
 
-    certificado = this.certificadosRepository.create({
-      revision,
-      oleaId: oleaId,
-      urlVerificacion,
-      codigoQr,
-      fechaEmision: new Date(),
-      numeroCertificado: `CERT-${revisionId}-${Date.now()}`,
-      fechaVencimiento:
-        revision.fechaVencimiento ||
-        new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    certificado = await this.prisma.certificados.create({
+      data: {
+        revisionId: revision.id,
+        oleaId: oleaId,
+        urlVerificacion,
+        codigoQr,
+        fechaEmision: new Date(),
+        numeroCertificado: `CERT-${revisionId}-${Date.now()}`,
+        fechaVencimiento:
+          revision.fechaVencimiento ||
+          new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      },
     });
-
-    await this.certificadosRepository.save(certificado);
 
     console.log(
       '✅ Certificado guardado:',
@@ -221,9 +216,18 @@ export class CertificadosService {
   async generarPDF(revisionId: number): Promise<Buffer> {
     console.log('[generarPDF] Inicio - revisionId:', revisionId);
 
-    const revision = await this.revisionesRepository.findOne({
+    const revision = await this.prisma.revisiones.findUnique({
       where: { id: revisionId },
-      relations: ['vehiculo', 'oblea', 'planta', 'usuario', 'planta.camara'],
+      include: {
+        vehiculos: true,
+        obleas: true,
+        plantas: {
+          include: {
+            camaras: true,
+          },
+        },
+        users: true,
+      },
     });
 
     if (!revision) {
@@ -236,10 +240,9 @@ export class CertificadosService {
 
     // 🔧 WORKAROUND: Query SQL directo para obtener el QR
     console.log('[generarPDF] 🔧 WORKAROUND v3: Ejecutando query SQL directo');
-    const qrResult = await this.certificadosRepository.query(
-      'SELECT "codigoQr" FROM certificados WHERE "revisionId" = $1',
-      [revisionId],
-    );
+    const qrResult: any = await this.prisma.$queryRaw`
+      SELECT "codigoQr" FROM certificados WHERE "revisionId" = ${revisionId}
+    `;
     const codigoQrFromDB = qrResult[0]?.codigoQr;
     console.log(
       '[generarPDF] ✅ QR obtenido:',
@@ -248,7 +251,7 @@ export class CertificadosService {
       codigoQrFromDB?.length || 0,
     );
 
-    const certificado = await this.certificadosRepository.findOne({
+    const certificado = await this.prisma.certificados.findFirst({
       where: { revisionId },
     });
 
@@ -312,21 +315,21 @@ export class CertificadosService {
       });
       yPosition -= 30;
     }
-    page.drawText(`Provincia: ${revision.planta.camara.provincia}`, {
+    page.drawText(`Provincia: ${revision.plantas.camaras.provincia}`, {
       x: 50,
       y: yPosition,
       size: 12,
       font,
     });
     yPosition -= 20;
-    page.drawText(`Cámara: ${revision.planta.camara.nombre}`, {
+    page.drawText(`Cámara: ${revision.plantas.camaras.nombre}`, {
       x: 50,
       y: yPosition,
       size: 12,
       font,
     });
     yPosition -= 20;
-    page.drawText(`Planta: ${revision.planta.nombre}`, {
+    page.drawText(`Planta: ${revision.plantas.nombre}`, {
       x: 50,
       y: yPosition,
       size: 12,
@@ -341,7 +344,7 @@ export class CertificadosService {
       font: fontBold,
     });
     yPosition -= 25;
-    page.drawText(`Dominio: ${revision.vehiculo.dominio}`, {
+    page.drawText(`Dominio: ${revision.vehiculos.dominio}`, {
       x: 50,
       y: yPosition,
       size: 12,
@@ -349,11 +352,11 @@ export class CertificadosService {
     });
     yPosition -= 20;
     page.drawText(
-      `Marca: ${revision.vehiculo.marca} - Modelo: ${revision.vehiculo.modelo}`,
+      `Marca: ${revision.vehiculos.marca} - Modelo: ${revision.vehiculos.modelo}`,
       { x: 50, y: yPosition, size: 12, font },
     );
     yPosition -= 20;
-    page.drawText(`Año: ${revision.vehiculo.anio}`, {
+    page.drawText(`Año: ${revision.vehiculos.anio}`, {
       x: 50,
       y: yPosition,
       size: 12,
@@ -362,15 +365,15 @@ export class CertificadosService {
     yPosition -= 30;
 
     // 📷 FOTO DEL VEHÍCULO (si existe)
-    if (revision.vehiculo.fotoUrl) {
+    if (revision.vehiculos.fotoUrl) {
       try {
         console.log(
           '[generarPDF] 📷 Procesando foto del vehículo:',
-          revision.vehiculo.fotoUrl,
+          revision.vehiculos.fotoUrl,
         );
 
         // Descargar la imagen desde la URL
-        const imageResponse = await axios.get(revision.vehiculo.fotoUrl, {
+        const imageResponse = await axios.get(revision.vehiculos.fotoUrl, {
           responseType: 'arraybuffer',
         });
         const imageBytes = Buffer.from(imageResponse.data);
@@ -463,7 +466,7 @@ export class CertificadosService {
       { x: 50, y: yPosition, size: 12, font },
     );
     yPosition -= 20;
-    page.drawText(`Inspector: ${revision.usuario.nombre}`, {
+    page.drawText(`Inspector: ${revision.users.nombre}`, {
       x: 50,
       y: yPosition,
       size: 12,
@@ -472,10 +475,10 @@ export class CertificadosService {
     yPosition -= 40;
 
     // 🆕 Solo mostrar oblea si existe
-    if (revision.oblea) {
+    if (revision.obleas) {
       page.drawText('OBLEA', { x: 50, y: yPosition, size: 14, font: fontBold });
       yPosition -= 25;
-      page.drawText(`Número: ${revision.oblea.numero}`, {
+      page.drawText(`Número: ${revision.obleas.numero}`, {
         x: 50,
         y: yPosition,
         size: 12,
@@ -483,9 +486,9 @@ export class CertificadosService {
       });
       yPosition -= 20;
 
-      if (revision.oblea.fechaAsignacion) {
+      if (revision.obleas.fechaAsignacion) {
         page.drawText(
-          `Fecha de asignación: ${new Date(revision.oblea.fechaAsignacion).toLocaleDateString('es-AR')}`,
+          `Fecha de asignación: ${new Date(revision.obleas.fechaAsignacion).toLocaleDateString('es-AR')}`,
           { x: 50, y: yPosition, size: 12, font },
         );
         yPosition -= 30;
@@ -610,17 +613,26 @@ export class CertificadosService {
         '[verificarPorCodigoQr] 🟠 Detectado certificado CONDICIONAL temporal',
       );
 
-      const certificado = await this.certificadosRepository
-        .createQueryBuilder('certificado')
-        .leftJoinAndSelect('certificado.revision', 'revision')
-        .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
-        .leftJoinAndSelect('revision.oblea', 'oblea')
-        .leftJoinAndSelect('revision.planta', 'planta')
-        .leftJoinAndSelect('planta.camara', 'camara')
-        .where('certificado.urlVerificacion LIKE :pattern', {
-          pattern: `%${codigoQr}%`,
-        })
-        .getOne();
+      const certificado: any = await this.prisma.certificados.findFirst({
+        where: {
+          urlVerificacion: {
+            contains: codigoQr,
+          },
+        },
+        include: {
+          revisiones: {
+            include: {
+              vehiculos: true,
+              obleas: true,
+              plantas: {
+                include: {
+                  camaras: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
       if (!certificado) {
         console.log(
@@ -634,7 +646,7 @@ export class CertificadosService {
         certificado.numeroCertificado,
       );
       const { dominio, marca, modelo, anio, fotoUrl } =
-        certificado.revision.vehiculo;
+        certificado.revisiones.vehiculos;
 
       return {
         valido: true,
@@ -645,10 +657,10 @@ export class CertificadosService {
         },
         vehiculo: { dominio, marca, modelo, anio, fotoUrl },
         revision: {
-          fecha: certificado.revision.fechaRevision,
-          resultado: certificado.revision.resultado,
-          planta: certificado.revision.planta.nombre,
-          provincia: certificado.revision.planta.camara.provincia,
+          fecha: certificado.revisiones.fechaRevision,
+          resultado: certificado.revisiones.resultado,
+          planta: certificado.revisiones.plantas.nombre,
+          provincia: certificado.revisiones.plantas.camaras.provincia,
         },
         oblea: null, // CONDICIONALES no tienen oblea
       };
@@ -664,17 +676,30 @@ export class CertificadosService {
       );
 
       // Buscar el certificado por el código de la oblea
-      const certificado = await this.certificadosRepository
-        .createQueryBuilder('certificado')
-        .leftJoinAndSelect('certificado.revision', 'revision')
-        .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
-        .leftJoinAndSelect('revision.oblea', 'oblea')
-        .leftJoinAndSelect('revision.planta', 'planta')
-        .leftJoinAndSelect('planta.camara', 'camara')
-        .where('oblea.codigoQr LIKE :pattern', {
-          pattern: `%${codigoQr}%`,
-        })
-        .getOne();
+      const certificado: any = await this.prisma.certificados.findFirst({
+        where: {
+          revisiones: {
+            obleas: {
+              codigoQr: {
+                contains: codigoQr,
+              },
+            },
+          },
+        },
+        include: {
+          revisiones: {
+            include: {
+              vehiculos: true,
+              obleas: true,
+              plantas: {
+                include: {
+                  camaras: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
       if (!certificado) {
         console.log(
@@ -700,7 +725,7 @@ export class CertificadosService {
       }
 
       const { dominio, marca, modelo, anio, fotoUrl } =
-        certificado.revision.vehiculo;
+        certificado.revisiones.vehiculos;
 
       return {
         valido: !vencido,
@@ -712,14 +737,14 @@ export class CertificadosService {
         },
         vehiculo: { dominio, marca, modelo, anio, fotoUrl },
         revision: {
-          fecha: certificado.revision.fechaRevision,
-          resultado: certificado.revision.resultado,
-          planta: certificado.revision.planta.nombre,
-          provincia: certificado.revision.planta.camara.provincia,
+          fecha: certificado.revisiones.fechaRevision,
+          resultado: certificado.revisiones.resultado,
+          planta: certificado.revisiones.plantas.nombre,
+          provincia: certificado.revisiones.plantas.camaras.provincia,
         },
         oblea: {
-          numero: certificado.revision.oblea.numero,
-          codigo: certificado.revision.oblea.codigoQr,
+          numero: certificado.revisiones.obleas.numero,
+          codigo: certificado.revisiones.obleas.codigoQr,
         },
       };
     }
@@ -745,17 +770,26 @@ export class CertificadosService {
 
     // Buscar certificado
     const searchPattern = `%-${timestamp}-${revisionId}-%`;
-    const certificado = await this.certificadosRepository
-      .createQueryBuilder('certificado')
-      .leftJoinAndSelect('certificado.revision', 'revision')
-      .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
-      .leftJoinAndSelect('revision.oblea', 'oblea')
-      .leftJoinAndSelect('revision.planta', 'planta')
-      .leftJoinAndSelect('planta.camara', 'camara')
-      .where('certificado.urlVerificacion LIKE :pattern', {
-        pattern: searchPattern,
-      })
-      .getOne();
+    const certificado: any = await this.prisma.certificados.findFirst({
+      where: {
+        urlVerificacion: {
+          contains: searchPattern,
+        },
+      },
+      include: {
+        revisiones: {
+          include: {
+            vehiculos: true,
+            obleas: true,
+            plantas: {
+              include: {
+                camaras: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
     if (!certificado) {
       console.log(
@@ -785,8 +819,11 @@ export class CertificadosService {
       console.error('  📋 Certificado ID:', certificado.id);
       console.error('  📋 Número certificado:', certificado.numeroCertificado);
       console.error('  🔢 Código QR:', codigoQr);
-      console.error('  👤 Usuario que emitió:', certificado.revision.usuarioId);
-      console.error('  🏢 Planta:', certificado.revision.planta.nombre);
+      console.error(
+        '  👤 Usuario que emitió:',
+        certificado.revisiones.usuarioId,
+      );
+      console.error('  🏢 Planta:', certificado.revisiones.plantas.nombre);
       console.error('  🔐 Firma proporcionada:', providedSignature);
       console.error('  🔐 Firma esperada:', expectedSignature);
       console.error('  ⏰ Timestamp del intento:', new Date().toISOString());
@@ -808,7 +845,7 @@ export class CertificadosService {
     }
 
     const { dominio, marca, modelo, anio, fotoUrl } =
-      certificado.revision.vehiculo;
+      certificado.revisiones.vehiculos;
 
     return {
       valido: !vencido,
@@ -820,23 +857,38 @@ export class CertificadosService {
       },
       vehiculo: { dominio, marca, modelo, anio, fotoUrl },
       revision: {
-        fecha: certificado.revision.fechaRevision,
-        resultado: certificado.revision.resultado,
-        planta: certificado.revision.planta.nombre,
-        provincia: certificado.revision.planta.camara.provincia,
+        fecha: certificado.revisiones.fechaRevision,
+        resultado: certificado.revisiones.resultado,
+        planta: certificado.revisiones.plantas.nombre,
+        provincia: certificado.revisiones.plantas.camaras.provincia,
       },
       oblea: {
-        numero: certificado.revision.oblea?.numero,
-        codigo: certificado.revision.oblea?.codigoQr,
+        numero: certificado.revisiones.obleas?.numero,
+        codigo: certificado.revisiones.obleas?.codigoQr,
       },
     };
   }
 
   async findAll(camaraId: number) {
-    return this.certificadosRepository.find({
-      where: { revision: { planta: { camaraId } } },
-      relations: ['revision', 'revision.vehiculo', 'revision.oblea'],
-      order: { fechaEmision: 'DESC' },
+    return this.prisma.certificados.findMany({
+      where: {
+        revisiones: {
+          plantas: {
+            camaraId,
+          },
+        },
+      },
+      include: {
+        revisiones: {
+          include: {
+            vehiculos: true,
+            obleas: true,
+          },
+        },
+      },
+      orderBy: {
+        fechaEmision: 'desc',
+      },
     });
   }
 }

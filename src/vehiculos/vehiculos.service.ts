@@ -3,9 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Vehiculo } from './entities/vehiculo.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateVehiculoDto } from './dto/create-vehiculo.dto';
 import { UpdateVehiculoDto } from './dto/update-vehiculo.dto';
 
@@ -14,19 +12,16 @@ import { UpdateVehiculoDto } from './dto/update-vehiculo.dto';
  */
 @Injectable()
 export class VehiculosService {
-  constructor(
-    @InjectRepository(Vehiculo)
-    private vehiculosRepository: Repository<Vehiculo>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Crear un nuevo vehículo
    */
-  async create(createVehiculoDto: CreateVehiculoDto): Promise<Vehiculo> {
+  async create(createVehiculoDto: CreateVehiculoDto) {
     const { dominio, fechaPrimeraMatriculacion } = createVehiculoDto;
 
     // Verificar que el dominio no existe
-    const existe = await this.vehiculosRepository.findOne({
+    const existe = await this.prisma.vehiculos.findUnique({
       where: { dominio: dominio.toUpperCase() },
     });
     if (existe) {
@@ -37,7 +32,7 @@ export class VehiculosService {
 
     // Calcular el año automáticamente desde la fecha de matriculación o usar el proporcionado
     let anio = createVehiculoDto.anio;
-    
+
     if (!anio && fechaPrimeraMatriculacion) {
       const fecha = new Date(fechaPrimeraMatriculacion);
       anio = fecha.getFullYear();
@@ -49,21 +44,21 @@ export class VehiculosService {
       );
     }
 
-    const vehiculo = this.vehiculosRepository.create({
-      ...createVehiculoDto,
-      dominio: dominio.toUpperCase(),
-      anio,
+    return this.prisma.vehiculos.create({
+      data: {
+        ...createVehiculoDto,
+        dominio: dominio.toUpperCase(),
+        anio,
+      },
     });
-
-    return this.vehiculosRepository.save(vehiculo);
   }
 
   /**
    * Listar todos los vehículos
    */
-  async findAll(): Promise<Vehiculo[]> {
-    return this.vehiculosRepository.find({
-      order: { createdAt: 'DESC' },
+  async findAll() {
+    return this.prisma.vehiculos.findMany({
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -71,15 +66,14 @@ export class VehiculosService {
    * Listar vehículos disponibles para nueva revisión
    * (sin revisión vigente o con revisión vencida)
    */
-  async findDisponiblesParaRevision(): Promise<Vehiculo[]> {
+  async findDisponiblesParaRevision() {
     const hoy = new Date();
 
     // Obtener todos los vehículos con sus revisiones
-    const vehiculos = await this.vehiculosRepository
-      .createQueryBuilder('vehiculo')
-      .leftJoinAndSelect('vehiculo.revisiones', 'revision')
-      .orderBy('vehiculo.createdAt', 'DESC')
-      .getMany();
+    const vehiculos = await this.prisma.vehiculos.findMany({
+      include: { revisiones: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
     // Filtrar vehículos que NO tienen revisión vigente
     return vehiculos.filter((vehiculo) => {
@@ -103,10 +97,10 @@ export class VehiculosService {
   /**
    * Buscar vehículo por dominio
    */
-  async findByDominio(dominio: string): Promise<Vehiculo> {
-    const vehiculo = await this.vehiculosRepository.findOne({
+  async findByDominio(dominio: string) {
+    const vehiculo = await this.prisma.vehiculos.findUnique({
       where: { dominio: dominio.toUpperCase() },
-      relations: ['revisiones'],
+      include: { revisiones: true },
     });
 
     if (!vehiculo) {
@@ -121,10 +115,10 @@ export class VehiculosService {
   /**
    * Obtener un vehículo por ID
    */
-  async findOne(id: number): Promise<Vehiculo> {
-    const vehiculo = await this.vehiculosRepository.findOne({
+  async findOne(id: number) {
+    const vehiculo = await this.prisma.vehiculos.findUnique({
       where: { id },
-      relations: ['revisiones'],
+      include: { revisiones: true },
     });
 
     if (!vehiculo) {
@@ -137,10 +131,7 @@ export class VehiculosService {
   /**
    * Actualizar un vehículo
    */
-  async update(
-    id: number,
-    updateVehiculoDto: UpdateVehiculoDto,
-  ): Promise<Vehiculo> {
+  async update(id: number, updateVehiculoDto: UpdateVehiculoDto) {
     const vehiculo = await this.findOne(id);
 
     // Si se cambia el dominio, verificar que no exista otro vehículo con ese dominio
@@ -148,7 +139,7 @@ export class VehiculosService {
       updateVehiculoDto.dominio &&
       updateVehiculoDto.dominio.toUpperCase() !== vehiculo.dominio
     ) {
-      const existe = await this.vehiculosRepository.findOne({
+      const existe = await this.prisma.vehiculos.findUnique({
         where: { dominio: updateVehiculoDto.dominio.toUpperCase() },
       });
       if (existe) {
@@ -160,13 +151,18 @@ export class VehiculosService {
     }
 
     // Si se actualiza la fecha de matriculación sin proporcionar año, recalcular
-    if (updateVehiculoDto.fechaPrimeraMatriculacion && !updateVehiculoDto.anio) {
+    if (
+      updateVehiculoDto.fechaPrimeraMatriculacion &&
+      !updateVehiculoDto.anio
+    ) {
       const fecha = new Date(updateVehiculoDto.fechaPrimeraMatriculacion);
       updateVehiculoDto.anio = fecha.getFullYear();
     }
 
-    Object.assign(vehiculo, updateVehiculoDto);
-    return this.vehiculosRepository.save(vehiculo);
+    return this.prisma.vehiculos.update({
+      where: { id },
+      data: updateVehiculoDto,
+    });
   }
 
   /**
@@ -182,6 +178,6 @@ export class VehiculosService {
       );
     }
 
-    await this.vehiculosRepository.remove(vehiculo);
+    await this.prisma.vehiculos.delete({ where: { id } });
   }
 }

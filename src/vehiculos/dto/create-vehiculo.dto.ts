@@ -7,6 +7,7 @@ import {
   Min,
   Max,
   IsDateString,
+  ValidateIf,
 } from 'class-validator';
 import { TipoVehiculo, TipoCombustible } from '../../common/enums';
 
@@ -58,6 +59,7 @@ export class CreateVehiculoDto {
   fechaPrimeraMatriculacion?: string;
 
   @IsOptional()
+  @ValidateIf((o) => o.fotoUrl !== null) // Solo validar si no es null
   @IsString()
-  fotoUrl?: string;
+  fotoUrl?: string | null; // Puede ser string (URL), null (borrar) o undefined (no cambiar)
 }

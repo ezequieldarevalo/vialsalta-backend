@@ -1,6 +1,5 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
@@ -27,12 +26,23 @@ import { PaymentsModule } from './payments/payments.module';
 import { StorageModule } from './storage/storage.module';
 import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
 import { winstonConfig } from './common/logger/winston.config';
+import { HealthModule } from './health/health.module';
+import { EmailModule } from './common/services/email.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { CacheConfigModule } from './cache/cache.module';
+import { SentryModule } from './sentry/sentry.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Sentry - Error monitoring
+    SentryModule,
+    // Redis Cache - Performance optimization
+    CacheConfigModule,
     // Logging profesional con Winston
     WinstonModule.forRoot(winstonConfig),
+    // Email service global
+    EmailModule,
     // Rate Limiting - Protección contra DDoS
     ThrottlerModule.forRoot([
       {
@@ -41,20 +51,8 @@ import { winstonConfig } from './common/logger/winston.config';
       },
     ]),
     StorageModule,
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get<string>('POSTGRES_HOST', 'localhost'),
-        port: parseInt(config.get<string>('POSTGRES_PORT', '5432'), 10),
-        username: config.get<string>('POSTGRES_USER', 'postgres'),
-        password: config.get<string>('POSTGRES_PASSWORD', 'postgres'),
-        database: config.get<string>('POSTGRES_DB', 'obleas_db'),
-        autoLoadEntities: true,
-        synchronize: true,
-        logging: true,
-      }),
-    }),
+    // Prisma ORM - Database access layer
+    PrismaModule,
     // Módulos de negocio
     UsersModule,
     CamarasModule,
@@ -72,6 +70,7 @@ import { winstonConfig } from './common/logger/winston.config';
     AuthModule,
     PaymentsModule,
     DemoModule, // Módulo de prueba para demostrar guards (eliminar en producción)
+    HealthModule, // Health checks para monitoreo
   ],
   controllers: [AppController],
   providers: [

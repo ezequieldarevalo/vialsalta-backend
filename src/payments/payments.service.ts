@@ -1,32 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import {
   MercadoPagoConfig,
   Preference,
   Payment as MPPayment,
 } from 'mercadopago';
 import {
-  Subscription,
   SubscriptionStatus,
   BillingPeriod,
 } from './entities/subscription.entity';
-import { Payment, PaymentStatus } from './entities/payment.entity';
-import { Planta } from '../plantas/entities/planta.entity';
+import { PaymentStatus } from './entities/payment.entity';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   private mercadopago: MercadoPagoConfig;
 
-  constructor(
-    @InjectRepository(Subscription)
-    private subscriptionRepository: Repository<Subscription>,
-    @InjectRepository(Payment)
-    private paymentRepository: Repository<Payment>,
-    @InjectRepository(Planta)
-    private plantaRepository: Repository<Planta>,
-  ) {
+  constructor(private readonly prisma: PrismaService) {
     // Inicializar MercadoPago
     this.mercadopago = new MercadoPagoConfig({
       accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '',
@@ -40,7 +30,7 @@ export class PaymentsService {
     plantaId: number,
     billingPeriod: BillingPeriod = BillingPeriod.MONTHLY,
   ) {
-    const planta = await this.plantaRepository.findOne({
+    const planta = await this.prisma.plantas.findUnique({
       where: { id: plantaId },
     });
 
@@ -58,14 +48,15 @@ export class PaymentsService {
     const amountARS = amount * exchangeRate;
 
     // Crear suscripción en BD (estado PENDING)
-    const subscription = this.subscriptionRepository.create({
-      plantaId,
-      status: SubscriptionStatus.PENDING,
-      billingPeriod,
-      amount,
-      autoRenew: true,
+    const subscription = await this.prisma.subscriptions.create({
+      data: {
+        plantaId,
+        status: SubscriptionStatus.PENDING as any,
+        billingPeriod: billingPeriod as any,
+        amount,
+        autoRenew: true,
+      },
     });
-    await this.subscriptionRepository.save(subscription);
 
     // Crear preferencia de pago en MercadoPago
     const preference = new Preference(this.mercadopago);
@@ -138,9 +129,9 @@ export class PaymentsService {
         return;
       }
 
-      const subscription = await this.subscriptionRepository.findOne({
+      const subscription = await this.prisma.subscriptions.findUnique({
         where: { id: subscriptionId },
-        relations: ['planta'],
+        include: { plantas: true },
       });
 
       if (!subscription) {
@@ -149,22 +140,23 @@ export class PaymentsService {
       }
 
       // Registrar el pago
-      const payment = this.paymentRepository.create({
-        subscriptionId: subscription.id,
-        mercadopagoPaymentId: paymentId,
-        status:
-          paymentInfo.status === 'approved'
-            ? PaymentStatus.APPROVED
-            : paymentInfo.status === 'rejected'
-              ? PaymentStatus.REJECTED
-              : PaymentStatus.PENDING,
-        amount: paymentInfo.transaction_amount,
-        currency: paymentInfo.currency_id,
-        paymentMethod: paymentInfo.payment_method_id,
-        paidAt: paymentInfo.status === 'approved' ? new Date() : undefined,
-        metadata: paymentInfo,
+      const payment = await this.prisma.payments.create({
+        data: {
+          subscriptionId: subscription.id,
+          mercadopagoPaymentId: paymentId,
+          status:
+            paymentInfo.status === 'approved'
+              ? (PaymentStatus.APPROVED as any)
+              : paymentInfo.status === 'rejected'
+                ? (PaymentStatus.REJECTED as any)
+                : (PaymentStatus.PENDING as any),
+          amount: paymentInfo.transaction_amount || 0,
+          currency: paymentInfo.currency_id,
+          paymentMethod: paymentInfo.payment_method_id,
+          paidAt: paymentInfo.status === 'approved' ? new Date() : undefined,
+          metadata: paymentInfo as any,
+        },
       });
-      await this.paymentRepository.save(payment);
 
       // Si el pago fue aprobado, activar suscripción
       if (paymentInfo.status === 'approved') {
@@ -178,7 +170,7 @@ export class PaymentsService {
   /**
    * Activar suscripción después de pago aprobado
    */
-  private async activateSubscription(subscription: Subscription) {
+  private async activateSubscription(subscription: any) {
     const now = new Date();
     const periodEnd = new Date(now);
 
@@ -188,11 +180,14 @@ export class PaymentsService {
       periodEnd.setFullYear(periodEnd.getFullYear() + 1);
     }
 
-    subscription.status = SubscriptionStatus.ACTIVE;
-    subscription.currentPeriodStart = now;
-    subscription.currentPeriodEnd = periodEnd;
-
-    await this.subscriptionRepository.save(subscription);
+    await this.prisma.subscriptions.update({
+      where: { id: subscription.id },
+      data: {
+        status: SubscriptionStatus.ACTIVE as any,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+      },
+    });
 
     this.logger.log(
       `Suscripción ${subscription.id} activada hasta ${periodEnd.toISOString()}`,
@@ -205,10 +200,10 @@ export class PaymentsService {
    * Verificar si una planta tiene suscripción activa
    */
   async isSubscriptionActive(plantaId: number): Promise<boolean> {
-    const subscription = await this.subscriptionRepository.findOne({
+    const subscription = await this.prisma.subscriptions.findFirst({
       where: {
         plantaId,
-        status: SubscriptionStatus.ACTIVE,
+        status: SubscriptionStatus.ACTIVE as any,
       },
     });
 
@@ -220,8 +215,10 @@ export class PaymentsService {
     const now = new Date();
     if (subscription.currentPeriodEnd && subscription.currentPeriodEnd < now) {
       // Suscripción expirada
-      subscription.status = SubscriptionStatus.SUSPENDED;
-      await this.subscriptionRepository.save(subscription);
+      await this.prisma.subscriptions.update({
+        where: { id: subscription.id },
+        data: { status: SubscriptionStatus.SUSPENDED as any },
+      });
       return false;
     }
 
@@ -231,13 +228,13 @@ export class PaymentsService {
   /**
    * Obtener suscripción activa de una planta
    */
-  async getActiveSubscription(plantaId: number): Promise<Subscription | null> {
-    return this.subscriptionRepository.findOne({
+  async getActiveSubscription(plantaId: number): Promise<any | null> {
+    return this.prisma.subscriptions.findFirst({
       where: {
         plantaId,
-        status: SubscriptionStatus.ACTIVE,
+        status: SubscriptionStatus.ACTIVE as any,
       },
-      relations: ['planta'],
+      include: { plantas: true },
     });
   }
 
@@ -245,13 +242,15 @@ export class PaymentsService {
    * Suspender suscripción por falta de pago
    */
   async suspendSubscription(subscriptionId: number) {
-    const subscription = await this.subscriptionRepository.findOne({
+    const subscription = await this.prisma.subscriptions.findUnique({
       where: { id: subscriptionId },
     });
 
     if (subscription) {
-      subscription.status = SubscriptionStatus.SUSPENDED;
-      await this.subscriptionRepository.save(subscription);
+      await this.prisma.subscriptions.update({
+        where: { id: subscriptionId },
+        data: { status: SubscriptionStatus.SUSPENDED as any },
+      });
       this.logger.warn(`Suscripción ${subscriptionId} suspendida`);
     }
   }
@@ -260,15 +259,19 @@ export class PaymentsService {
    * Cancelar suscripción
    */
   async cancelSubscription(subscriptionId: number) {
-    const subscription = await this.subscriptionRepository.findOne({
+    const subscription = await this.prisma.subscriptions.findUnique({
       where: { id: subscriptionId },
     });
 
     if (subscription) {
-      subscription.status = SubscriptionStatus.CANCELLED;
-      subscription.cancelledAt = new Date();
-      subscription.autoRenew = false;
-      await this.subscriptionRepository.save(subscription);
+      await this.prisma.subscriptions.update({
+        where: { id: subscriptionId },
+        data: {
+          status: SubscriptionStatus.CANCELLED as any,
+          cancelledAt: new Date(),
+          autoRenew: false,
+        },
+      });
       this.logger.log(`Suscripción ${subscriptionId} cancelada`);
     }
   }
@@ -276,8 +279,8 @@ export class PaymentsService {
   /**
    * Obtener historial de pagos de una planta
    */
-  async getPaymentHistory(plantaId: number): Promise<Payment[]> {
-    const subscription = await this.subscriptionRepository.findOne({
+  async getPaymentHistory(plantaId: number): Promise<any[]> {
+    const subscription = await this.prisma.subscriptions.findFirst({
       where: { plantaId },
     });
 
@@ -285,9 +288,9 @@ export class PaymentsService {
       return [];
     }
 
-    return this.paymentRepository.find({
+    return this.prisma.payments.findMany({
       where: { subscriptionId: subscription.id },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }

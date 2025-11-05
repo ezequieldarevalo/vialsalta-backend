@@ -6,11 +6,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Revision } from './entities/revision.entity';
-import { Oblea } from '../obleas/entities/oblea.entity';
-import { Vehiculo } from '../vehiculos/entities/vehiculo.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateRevisionDto } from './dto/create-revision.dto';
 import { UpdateRevisionDto } from './dto/update-revision.dto';
 import { ResultadoRevision, EstadoOblea, UserRole } from '../common/enums';
@@ -22,19 +18,14 @@ import { CertificadosService } from '../certificados/certificados.service';
 @Injectable()
 export class RevisionesService {
   constructor(
-    @InjectRepository(Revision)
-    private revisionesRepository: Repository<Revision>,
-    @InjectRepository(Oblea)
-    private obleasRepository: Repository<Oblea>,
-    @InjectRepository(Vehiculo)
-    private vehiculosRepository: Repository<Vehiculo>,
+    private readonly prisma: PrismaService,
     @Inject(forwardRef(() => CertificadosService))
     private certificadosService: CertificadosService,
   ) {}
 
   /**
    * 🔧 Calcular fecha de vencimiento según resultado, antigüedad del vehículo y revisiones previas
-   * 
+   *
    * Reglas de negocio:
    * - RECHAZADO: No tiene vencimiento (no se emite certificado)
    * - CONDICIONAL: 60 días desde la fecha de revisión
@@ -60,46 +51,54 @@ export class RevisionesService {
     if (resultado === ResultadoRevision.CONDICIONAL) {
       const vencimiento = new Date(fecha);
       vencimiento.setDate(vencimiento.getDate() + 60);
-      console.log(`[calcularVencimiento] CONDICIONAL → 60 días: ${vencimiento.toISOString()}`);
+      console.log(
+        `[calcularVencimiento] CONDICIONAL → 60 días: ${vencimiento.toISOString()}`,
+      );
       return vencimiento;
     }
 
     // APROBADO: Calcular según antigüedad del vehículo
-    const vehiculo = await this.vehiculosRepository.findOne({
+    const vehiculo = await this.prisma.vehiculos.findUnique({
       where: { id: vehiculoId },
     });
 
     if (!vehiculo) {
-      throw new NotFoundException(`Vehículo con ID ${vehiculoId} no encontrado`);
+      throw new NotFoundException(
+        `Vehículo con ID ${vehiculoId} no encontrado`,
+      );
     }
 
     // Calcular antigüedad del vehículo
     const anioActual = new Date().getFullYear();
     const antiguedad = anioActual - vehiculo.anio;
-    
-    console.log(`[calcularVencimiento] Vehículo año ${vehiculo.anio}, antigüedad: ${antiguedad} años`);
+
+    console.log(
+      `[calcularVencimiento] Vehículo año ${vehiculo.anio}, antigüedad: ${antiguedad} años`,
+    );
 
     // Determinar vigencia base según antigüedad
-    let vigenciaAnios = antiguedad <= 7 ? 2 : 1;
+    const vigenciaAnios = antiguedad <= 7 ? 2 : 1;
     console.log(`[calcularVencimiento] Vigencia base: ${vigenciaAnios} año(s)`);
 
     // Verificar si hay revisión CONDICIONAL previa
-    const revisionCondicionalPrevia = await this.revisionesRepository.findOne({
+    const revisionCondicionalPrevia = await this.prisma.revisiones.findFirst({
       where: {
         vehiculoId,
         resultado: ResultadoRevision.CONDICIONAL,
       },
-      order: {
-        fechaRevision: 'DESC',
+      orderBy: {
+        fechaRevision: 'desc',
       },
     });
 
     let diasADescontar = 0;
     if (revisionCondicionalPrevia) {
       // Calcular días transcurridos entre condicional y aprobado
-      const fechaCondicional = new Date(revisionCondicionalPrevia.fechaRevision);
+      const fechaCondicional = new Date(
+        revisionCondicionalPrevia.fechaRevision,
+      );
       diasADescontar = Math.floor(
-        (fecha.getTime() - fechaCondicional.getTime()) / (1000 * 60 * 60 * 24)
+        (fecha.getTime() - fechaCondicional.getTime()) / (1000 * 60 * 60 * 24),
       );
 
       console.log('[calcularVencimiento] Condicional previa encontrada:');
@@ -111,13 +110,17 @@ export class RevisionesService {
     // Calcular fecha de vencimiento
     const vencimiento = new Date(fecha);
     vencimiento.setFullYear(vencimiento.getFullYear() + vigenciaAnios);
-    
+
     // Restar días de condicional si aplica
     if (diasADescontar > 0) {
       vencimiento.setDate(vencimiento.getDate() - diasADescontar);
-      console.log(`[calcularVencimiento] APROBADO con ajuste por condicional → Vencimiento: ${vencimiento.toISOString()}`);
+      console.log(
+        `[calcularVencimiento] APROBADO con ajuste por condicional → Vencimiento: ${vencimiento.toISOString()}`,
+      );
     } else {
-      console.log(`[calcularVencimiento] APROBADO sin condicional previa → ${vigenciaAnios} año(s): ${vencimiento.toISOString()}`);
+      console.log(
+        `[calcularVencimiento] APROBADO sin condicional previa → ${vigenciaAnios} año(s): ${vencimiento.toISOString()}`,
+      );
     }
 
     return vencimiento;
@@ -126,10 +129,7 @@ export class RevisionesService {
   /**
    * Crear una nueva revisión técnica
    */
-  async create(
-    createRevisionDto: CreateRevisionDto,
-    user: any,
-  ): Promise<Revision> {
+  async create(createRevisionDto: CreateRevisionDto, user: any) {
     const {
       vehiculoId,
       plantaId,
@@ -141,7 +141,7 @@ export class RevisionesService {
     } = createRevisionDto;
 
     // Verificar que el vehículo existe
-    const vehiculo = await this.vehiculosRepository.findOne({
+    const vehiculo = await this.prisma.vehiculos.findUnique({
       where: { id: vehiculoId },
     });
     if (!vehiculo) {
@@ -159,26 +159,28 @@ export class RevisionesService {
     }
 
     // 🔧 Calcular fecha de vencimiento usando la nueva lógica
-    const fechaParaCalculo = fechaRevision ? new Date(fechaRevision) : new Date();
+    const fechaParaCalculo = fechaRevision
+      ? new Date(fechaRevision)
+      : new Date();
     const fechaVencimiento = await this.calcularFechaVencimiento(
       vehiculoId,
       resultado,
       fechaParaCalculo,
     );
 
-    const revision = this.revisionesRepository.create({
-      plantaId: plantaFinal,
-      vehiculoId,
-      usuarioId: user.sub,
-      resultado,
-      observaciones,
-      urlFoto,
-      kilometraje,
-      fechaRevision: fechaRevision ? new Date(fechaRevision) : new Date(),
-      fechaVencimiento: fechaVencimiento || undefined,
+    return this.prisma.revisiones.create({
+      data: {
+        plantaId: plantaFinal,
+        vehiculoId,
+        usuarioId: user.sub,
+        resultado,
+        observaciones,
+        urlFoto,
+        kilometraje,
+        fechaRevision: fechaRevision ? new Date(fechaRevision) : new Date(),
+        fechaVencimiento: fechaVencimiento || undefined,
+      },
     });
-
-    return this.revisionesRepository.save(revision);
   }
 
   /**
@@ -186,15 +188,11 @@ export class RevisionesService {
    * NUEVO FLUJO: Recibe el número de oblea escaneada/ingresada
    * Activa el QR al asignar
    */
-  async asignarOblea(
-    revisionId: number,
-    numeroOblea: number,
-    user: any,
-  ): Promise<Revision> {
+  async asignarOblea(revisionId: number, numeroOblea: number, user: any) {
     // Buscar la revisión
-    const revision = await this.revisionesRepository.findOne({
+    const revision = await this.prisma.revisiones.findUnique({
       where: { id: revisionId },
-      relations: ['vehiculo', 'planta'],
+      include: { vehiculos: true, plantas: true },
     });
 
     if (!revision) {
@@ -219,7 +217,8 @@ export class RevisionesService {
 
     // Validar permisos: solo PLANTA_ADMIN/PLANTA_OPERADOR de la misma planta
     if (
-      (user.role === UserRole.PLANTA_ADMIN || user.role === UserRole.PLANTA_OPERADOR) &&
+      (user.role === UserRole.PLANTA_ADMIN ||
+        user.role === UserRole.PLANTA_OPERADOR) &&
       revision.plantaId !== user.plantaId
     ) {
       throw new ForbiddenException(
@@ -228,9 +227,9 @@ export class RevisionesService {
     }
 
     // 🔍 Buscar la oblea por número
-    const oblea = await this.obleasRepository.findOne({
+    const oblea = await this.prisma.obleas.findUnique({
       where: { numero: numeroOblea },
-      relations: ['bloque'],
+      include: { bloques_obleas: true },
     });
 
     if (!oblea) {
@@ -247,16 +246,14 @@ export class RevisionesService {
     }
 
     // Validar que la oblea pertenece a la misma cámara
-    const camaraId = user.camaraId || revision.planta?.camaraId;
+    const camaraId = user.camaraId || revision.plantas?.camaraId;
     if (oblea.camaraId !== camaraId) {
-      throw new BadRequestException(
-        'La oblea no pertenece a la misma cámara',
-      );
+      throw new BadRequestException('La oblea no pertenece a la misma cámara');
     }
 
     // Si hay planta específica, validar que la oblea puede usarse en esa planta
-    if (revision.plantaId && oblea.bloque.plantaId) {
-      if (oblea.bloque.plantaId !== revision.plantaId) {
+    if (revision.plantaId && oblea.bloques_obleas.plantaId) {
+      if (oblea.bloques_obleas.plantaId !== revision.plantaId) {
         throw new BadRequestException(
           `La oblea ${numeroOblea} está asignada a otra planta`,
         );
@@ -264,35 +261,43 @@ export class RevisionesService {
     }
 
     // ✅ Marcar la oblea como ASIGNADA y ACTIVAR EL QR
-    oblea.estado = EstadoOblea.ASIGNADA;
-    oblea.fechaAsignacion = new Date();
-    oblea.qrActivo = true;  // 🎯 ACTIVAR QR
-    oblea.plantaId = revision.plantaId;
-    oblea.revisionId = revisionId;
-    await this.obleasRepository.save(oblea);
+    await this.prisma.obleas.update({
+      where: { numero: numeroOblea },
+      data: {
+        estado: EstadoOblea.ASIGNADA,
+        fechaAsignacion: new Date(),
+        qrActivo: true, // 🎯 ACTIVAR QR
+        plantaId: revision.plantaId,
+        revisionId,
+      },
+    });
 
     // 🎯 RECALCULAR FECHA DE VENCIMIENTO AL ASIGNAR OBLEA
     // Este es el momento oficial de aprobación, no al crear la revisión
     console.log(
       `🔄 [ASIGNAR OBLEA] Recalculando fecha de vencimiento para revisión ${revisionId}`,
     );
-    
+
     const nuevaFechaVencimiento = await this.calcularFechaVencimiento(
       revision.vehiculoId,
-      revision.resultado,
+      revision.resultado as ResultadoRevision,
       revision.fechaRevision,
     );
-    
+
+    // Asignar la oblea a la revisión y actualizar fecha de vencimiento
+    await this.prisma.revisiones.update({
+      where: { id: revisionId },
+      data: {
+        oleaId: oblea.id,
+        fechaVencimiento: nuevaFechaVencimiento || undefined,
+      },
+    });
+
     if (nuevaFechaVencimiento) {
-      revision.fechaVencimiento = nuevaFechaVencimiento;
       console.log(
         `✅ [ASIGNAR OBLEA] Nueva fecha de vencimiento: ${nuevaFechaVencimiento.toISOString()}`,
       );
     }
-
-    // Asignar la oblea a la revisión
-    revision.oleaId = oblea.id;
-    await this.revisionesRepository.save(revision);
 
     // GENERAR CERTIFICADO AUTOMÁTICAMENTE
     console.log(
@@ -315,9 +320,14 @@ export class RevisionesService {
     }
 
     // Retornar con relaciones cargadas
-    const revisionActualizada = await this.revisionesRepository.findOne({
+    const revisionActualizada = await this.prisma.revisiones.findUnique({
       where: { id: revisionId },
-      relations: ['vehiculo', 'planta', 'oblea', 'usuario'],
+      include: {
+        vehiculos: true,
+        plantas: true,
+        obleas: true,
+        users: true,
+      },
     });
 
     if (!revisionActualizada) {
@@ -330,20 +340,13 @@ export class RevisionesService {
   /**
    * Listar todas las revisiones (filtradas por cámara del usuario)
    */
-  async findAll(user: any): Promise<Revision[]> {
-    console.log('[findAll] 🔍 Usuario consultando:' , {
+  async findAll(user: any) {
+    console.log('[findAll] 🔍 Usuario consultando:', {
       userId: user.sub,
       role: user.role,
       plantaId: user.plantaId,
-      camaraId: user.camaraId
+      camaraId: user.camaraId,
     });
-
-    const query = this.revisionesRepository
-      .createQueryBuilder('revision')
-      .leftJoinAndSelect('revision.vehiculo', 'vehiculo')
-      .leftJoinAndSelect('revision.planta', 'planta')
-      .leftJoinAndSelect('revision.oblea', 'oblea')
-      .leftJoinAndSelect('revision.usuario', 'usuario');
 
     // Filtrar por cámara a través de la planta
     if (
@@ -353,31 +356,66 @@ export class RevisionesService {
     ) {
       console.log('[findAll] ✓ Filtrando por plantaId:', user.plantaId);
       // Si es usuario de planta, solo ver revisiones de su planta
-      query.where('revision.plantaId = :plantaId', {
-        plantaId: user.plantaId,
+      const results = await this.prisma.revisiones.findMany({
+        where: { plantaId: user.plantaId },
+        include: {
+          vehiculos: true,
+          plantas: true,
+          obleas: true,
+          users: true,
+        },
+        orderBy: { fechaRevision: 'desc' },
       });
+      console.log('[findAll] 📋 Revisiones encontradas:', results.length);
+      return results;
     } else if (user.camaraId) {
       console.log('[findAll] ✓ Filtrando por camaraId:', user.camaraId);
       // Si es CAMARA o MUNICIPIO, filtrar por camaraId de la planta
-      query.where('planta.camaraId = :camaraId', { camaraId: user.camaraId });
+      const results = await this.prisma.revisiones.findMany({
+        where: {
+          plantas: { camaraId: user.camaraId },
+        },
+        include: {
+          vehiculos: true,
+          plantas: true,
+          obleas: true,
+          users: true,
+        },
+        orderBy: { fechaRevision: 'desc' },
+      });
+      console.log('[findAll] 📋 Revisiones encontradas:', results.length);
+      return results;
     } else {
-      console.warn('[findAll] ⚠️  Usuario sin plantaId ni camaraId - mostrando TODAS las revisiones');
+      console.warn(
+        '[findAll] ⚠️  Usuario sin plantaId ni camaraId - mostrando TODAS las revisiones',
+      );
       // No aplicar filtro (útil para debugging o admin global)
+      const results = await this.prisma.revisiones.findMany({
+        include: {
+          vehiculos: true,
+          plantas: true,
+          obleas: true,
+          users: true,
+        },
+        orderBy: { fechaRevision: 'desc' },
+      });
+      console.log('[findAll] 📋 Revisiones encontradas:', results.length);
+      return results;
     }
-
-    const results = await query.orderBy('revision.fechaRevision', 'DESC').getMany();
-    console.log('[findAll] 📋 Revisiones encontradas:', results.length);
-    
-    return results;
   }
 
   /**
    * Obtener una revisión por ID
    */
-  async findOne(id: number, user: any): Promise<Revision> {
-    const revision = await this.revisionesRepository.findOne({
+  async findOne(id: number, user: any) {
+    const revision = await this.prisma.revisiones.findUnique({
       where: { id },
-      relations: ['vehiculo', 'planta', 'oblea', 'usuario'],
+      include: {
+        vehiculos: true,
+        plantas: true,
+        obleas: true,
+        users: true,
+      },
     });
 
     if (!revision) {
@@ -385,7 +423,7 @@ export class RevisionesService {
     }
 
     // Validar que pertenece a la cámara del usuario
-    if (revision.planta.camaraId !== user.camaraId) {
+    if (revision.plantas.camaraId !== user.camaraId) {
       throw new ForbiddenException('No tiene acceso a esta revisión');
     }
 
@@ -396,11 +434,7 @@ export class RevisionesService {
    * Actualizar una revisión
    * Solo se puede actualizar si NO tiene oblea asignada
    */
-  async update(
-    id: number,
-    updateRevisionDto: UpdateRevisionDto,
-    user: any,
-  ): Promise<Revision> {
+  async update(id: number, updateRevisionDto: UpdateRevisionDto, user: any) {
     const revision = await this.findOne(id, user);
 
     if (revision.oleaId) {
@@ -410,17 +444,25 @@ export class RevisionesService {
     }
 
     // Si cambia el resultado, recalcular fecha de vencimiento
-    if (updateRevisionDto.resultado && updateRevisionDto.resultado !== revision.resultado) {
-      const fechaVencimiento = await this.calcularFechaVencimiento(
+    let fechaVencimiento;
+    if (
+      updateRevisionDto.resultado &&
+      updateRevisionDto.resultado !== revision.resultado
+    ) {
+      fechaVencimiento = await this.calcularFechaVencimiento(
         revision.vehiculoId,
         updateRevisionDto.resultado,
         revision.fechaRevision,
       );
-      revision.fechaVencimiento = fechaVencimiento;
     }
 
-    Object.assign(revision, updateRevisionDto);
-    return this.revisionesRepository.save(revision);
+    return this.prisma.revisiones.update({
+      where: { id },
+      data: {
+        ...updateRevisionDto,
+        ...(fechaVencimiento !== undefined && { fechaVencimiento }),
+      },
+    });
   }
 
   /**
@@ -436,50 +478,44 @@ export class RevisionesService {
       );
     }
 
-    await this.revisionesRepository.remove(revision);
+    await this.prisma.revisiones.delete({ where: { id } });
   }
 
   /**
    * Obtener estadísticas de revisiones
    */
   async getEstadisticas(user: any): Promise<any> {
-    const baseQuery = this.revisionesRepository
-      .createQueryBuilder('revision')
-      .leftJoin('revision.planta', 'planta')
-      .where('planta.camaraId = :camaraId', { camaraId: user.camaraId });
+    let whereClause: any = {};
 
+    // Filtrar por cámara del usuario
     if (
       (user.role === UserRole.PLANTA_ADMIN ||
         user.role === UserRole.PLANTA_OPERADOR) &&
       user.plantaId
     ) {
-      baseQuery.andWhere('revision.plantaId = :plantaId', {
-        plantaId: user.plantaId,
-      });
+      whereClause = { plantaId: user.plantaId };
+    } else if (user.camaraId) {
+      whereClause = { plantas: { camaraId: user.camaraId } };
     }
 
     const [total, aprobadas, rechazadas, condicionales, conOblea] =
       await Promise.all([
-        baseQuery.getCount(),
-        baseQuery
-          .clone()
-          .andWhere('revision.resultado = :resultado', {
-            resultado: ResultadoRevision.APROBADO,
-          })
-          .getCount(),
-        baseQuery
-          .clone()
-          .andWhere('revision.resultado = :resultado', {
-            resultado: ResultadoRevision.RECHAZADO,
-          })
-          .getCount(),
-        baseQuery
-          .clone()
-          .andWhere('revision.resultado = :resultado', {
+        this.prisma.revisiones.count({ where: whereClause }),
+        this.prisma.revisiones.count({
+          where: { ...whereClause, resultado: ResultadoRevision.APROBADO },
+        }),
+        this.prisma.revisiones.count({
+          where: { ...whereClause, resultado: ResultadoRevision.RECHAZADO },
+        }),
+        this.prisma.revisiones.count({
+          where: {
+            ...whereClause,
             resultado: ResultadoRevision.CONDICIONAL,
-          })
-          .getCount(),
-        baseQuery.clone().andWhere('revision.oleaId IS NOT NULL').getCount(),
+          },
+        }),
+        this.prisma.revisiones.count({
+          where: { ...whereClause, oleaId: { not: null } },
+        }),
       ]);
 
     return {

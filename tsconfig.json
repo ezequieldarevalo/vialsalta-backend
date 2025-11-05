@@ -21,5 +21,16 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.entity.ts",
+    "src/database/ormconfig.ts",
+    "src/database/migrations/**",
+    "src/database/seeds/**",
+    "src/tipos-vehiculo/seed-tipos.ts",
+    "src/tipos-vehiculo/run-seed.ts",
+    "**/*.typeorm.backup.ts"
+  ]
 }

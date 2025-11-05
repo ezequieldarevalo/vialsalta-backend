@@ -1,9 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
-import { Revision } from '../revisiones/entities/revision.entity';
-import { Vehiculo } from '../vehiculos/entities/vehiculo.entity';
-import { BloqueObleas } from '../bloques/entities/bloque-obleas.entity';
+import { Injectable, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
+import { PrismaService } from '../prisma/prisma.service';
 import { ResultadoRevision } from '../common/enums';
 import {
   RevisionesMesDto,
@@ -17,22 +15,26 @@ import {
 
 /**
  * Servicio para generar estadísticas de planta
+ * Migrado a Prisma ORM
  */
 @Injectable()
 export class EstadisticasService {
   constructor(
-    @InjectRepository(Revision)
-    private revisionesRepository: Repository<Revision>,
-    @InjectRepository(Vehiculo)
-    private vehiculosRepository: Repository<Vehiculo>,
-    @InjectRepository(BloqueObleas)
-    private bloquesRepository: Repository<BloqueObleas>,
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   /**
    * Obtener todas las estadísticas de una planta
    */
   async getEstadisticas(plantaId: number): Promise<EstadisticasResponseDto> {
+    const cacheKey = `estadisticas:planta:${plantaId}`;
+    const cached: any = await this.cacheManager.get(cacheKey);
+    if (cached) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return cached;
+    }
+
     const [
       revisionesMes,
       obleas,
@@ -47,29 +49,42 @@ export class EstadisticasService {
       this.getProximosVencimientos(plantaId),
     ]);
 
-    return {
+    const estadisticas = {
       revisionesMes,
       obleas,
       tasaAprobacion,
       vehiculosPorTipo,
       proximosVencimientos,
     };
+
+    // Cache por 5 minutos (se recalcula frecuentemente)
+    await this.cacheManager.set(cacheKey, estadisticas, 300000);
+
+    return estadisticas;
   }
 
   /**
    * Obtener revisiones del mes actual
    */
-  private async getRevisionesMes(
-    plantaId: number,
-  ): Promise<RevisionesMesDto> {
+  private async getRevisionesMes(plantaId: number): Promise<RevisionesMesDto> {
     const now = new Date();
     const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
-    const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const finMes = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
 
-    const revisiones = await this.revisionesRepository.find({
+    const revisiones = await this.prisma.revisiones.findMany({
       where: {
         plantaId,
-        fechaRevision: Between(inicioMes, finMes),
+        fechaRevision: {
+          gte: inicioMes,
+          lte: finMes,
+        },
       },
     });
 
@@ -89,9 +104,12 @@ export class EstadisticasService {
       aprobadas,
       rechazadas,
       condicionales,
-      porcentajeAprobadas: total > 0 ? Math.round((aprobadas / total) * 10000) / 100 : 0,
-      porcentajeRechazadas: total > 0 ? Math.round((rechazadas / total) * 10000) / 100 : 0,
-      porcentajeCondicionales: total > 0 ? Math.round((condicionales / total) * 10000) / 100 : 0,
+      porcentajeAprobadas:
+        total > 0 ? Math.round((aprobadas / total) * 10000) / 100 : 0,
+      porcentajeRechazadas:
+        total > 0 ? Math.round((rechazadas / total) * 10000) / 100 : 0,
+      porcentajeCondicionales:
+        total > 0 ? Math.round((condicionales / total) * 10000) / 100 : 0,
     };
   }
 
@@ -100,7 +118,7 @@ export class EstadisticasService {
    */
   private async getObleasStats(plantaId: number): Promise<ObleasStatsDto> {
     // Obtener todos los bloques asignados a esta planta
-    const bloques = await this.bloquesRepository.find({
+    const bloques = await this.prisma.bloques_obleas.findMany({
       where: { plantaId },
     });
 
@@ -114,33 +132,45 @@ export class EstadisticasService {
     }
 
     // Calcular total de obleas en todos los bloques
-    const total = bloques.reduce((sum, bloque) => sum + (bloque.numeroFin - bloque.numeroInicio + 1), 0);
+    const total = bloques.reduce(
+      (sum, bloque) => sum + (bloque.numeroFin - bloque.numeroInicio + 1),
+      0,
+    );
 
     // Contar obleas utilizadas en el mes actual
     const now = new Date();
     const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1);
-    const finMes = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const finMes = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
 
-    const utilizadasMes = await this.revisionesRepository
-      .createQueryBuilder('revision')
-      .innerJoin('revision.oblea', 'oblea')
-      .where('oblea.bloqueId IN (:...bloqueIds)', {
-        bloqueIds: bloques.map((b) => b.id),
-      })
-      .andWhere('revision.fechaRevision BETWEEN :inicio AND :fin', {
-        inicio: inicioMes,
-        fin: finMes,
-      })
-      .getCount();
+    const bloqueIds = bloques.map((b) => b.id);
+
+    const utilizadasMes = await this.prisma.revisiones.count({
+      where: {
+        obleas: {
+          bloqueId: { in: bloqueIds },
+        },
+        fechaRevision: {
+          gte: inicioMes,
+          lte: finMes,
+        },
+      },
+    });
 
     // Contar obleas totalmente utilizadas
-    const utilizadasTotal = await this.revisionesRepository
-      .createQueryBuilder('revision')
-      .innerJoin('revision.oblea', 'oblea')
-      .where('oblea.bloqueId IN (:...bloqueIds)', {
-        bloqueIds: bloques.map((b) => b.id),
-      })
-      .getCount();
+    const utilizadasTotal = await this.prisma.revisiones.count({
+      where: {
+        obleas: {
+          bloqueId: { in: bloqueIds },
+        },
+      },
+    });
 
     const disponibles = total - utilizadasTotal;
     const alertaBajoStock = disponibles < total * 0.2; // Alerta si quedan menos del 20%
@@ -174,16 +204,19 @@ export class EstadisticasService {
         59,
       );
 
-      const revisiones = await this.revisionesRepository.find({
+      const revisiones = await this.prisma.revisiones.findMany({
         where: {
           plantaId,
-          fechaRevision: Between(inicioMes, finMes),
+          fechaRevision: {
+            gte: inicioMes,
+            lte: finMes,
+          },
         },
       });
 
       const total = revisiones.length;
       const aprobadas = revisiones.filter(
-        (r) => r.resultado === ResultadoRevision.APROBADO,
+        (r) => r.resultado === (ResultadoRevision.APROBADO as any),
       ).length;
       const porcentaje = total > 0 ? (aprobadas / total) * 100 : 0;
 
@@ -228,23 +261,30 @@ export class EstadisticasService {
   private async getVehiculosPorTipo(
     plantaId: number,
   ): Promise<VehiculosPorTipoDto[]> {
-    const revisiones = await this.revisionesRepository.find({
+    const revisiones = await this.prisma.revisiones.findMany({
       where: { plantaId },
-      relations: ['vehiculo', 'vehiculo.tipoVehiculo'],
+      include: {
+        vehiculos: {
+          include: {
+            tipos_vehiculo: true,
+          },
+        },
+      },
     });
 
     // Usar Map para evitar duplicados de vehículos
-    const vehiculosUnicos = new Map<number, Vehiculo>();
+    const vehiculosUnicos = new Map<number, any>();
     revisiones.forEach((revision) => {
-      if (revision.vehiculo) {
-        vehiculosUnicos.set(revision.vehiculo.id, revision.vehiculo);
+      if (revision.vehiculos) {
+        vehiculosUnicos.set(revision.vehiculos.id, revision.vehiculos);
       }
     });
 
     // Contar por tipo
     const countPorTipo = new Map<string, number>();
     vehiculosUnicos.forEach((vehiculo) => {
-      const tipo = vehiculo.tipoVehiculo?.nombre || vehiculo.tipo || 'Sin tipo';
+      const tipo =
+        vehiculo.tipos_vehiculo?.nombre || vehiculo.tipo || 'Sin tipo';
       countPorTipo.set(tipo, (countPorTipo.get(tipo) || 0) + 1);
     });
 
@@ -270,15 +310,24 @@ export class EstadisticasService {
     en60Dias.setDate(en60Dias.getDate() + 60);
 
     // Buscar revisiones aprobadas que vencen en los próximos 30-60 días
-    const revisiones = await this.revisionesRepository.find({
+    const revisiones = await this.prisma.revisiones.findMany({
       where: {
         plantaId,
-        resultado: ResultadoRevision.APROBADO,
-        fechaVencimiento: Between(en30Dias, en60Dias),
+        resultado: ResultadoRevision.APROBADO as any,
+        fechaVencimiento: {
+          gte: en30Dias,
+          lte: en60Dias,
+        },
       },
-      relations: ['vehiculo', 'vehiculo.tipoVehiculo'],
-      order: {
-        fechaVencimiento: 'ASC',
+      include: {
+        vehiculos: {
+          include: {
+            tipos_vehiculo: true,
+          },
+        },
+      },
+      orderBy: {
+        fechaVencimiento: 'asc',
       },
     });
 
@@ -288,8 +337,8 @@ export class EstadisticasService {
     for (const revision of revisiones) {
       // Saltear si no tiene vehículo, ya está agregado, o no tiene fecha de vencimiento
       if (
-        !revision.vehiculo ||
-        vehiculosAgregados.has(revision.vehiculo.id) ||
+        !revision.vehiculos ||
+        vehiculosAgregados.has(revision.vehiculos.id) ||
         !revision.fechaVencimiento
       ) {
         continue;
@@ -301,17 +350,19 @@ export class EstadisticasService {
       );
 
       result.push({
-        id: revision.vehiculo.id,
-        dominio: revision.vehiculo.dominio,
-        marca: revision.vehiculo.marca,
-        modelo: revision.vehiculo.modelo,
+        id: revision.vehiculos.id,
+        dominio: revision.vehiculos.dominio,
+        marca: revision.vehiculos.marca,
+        modelo: revision.vehiculos.modelo,
         tipoVehiculo:
-          revision.vehiculo.tipoVehiculo?.nombre || revision.vehiculo.tipo,
+          revision.vehiculos.tipos_vehiculo?.nombre ||
+          revision.vehiculos.tipo ||
+          undefined,
         fechaVencimiento: revision.fechaVencimiento,
         diasRestantes,
       });
 
-      vehiculosAgregados.add(revision.vehiculo.id);
+      vehiculosAgregados.add(revision.vehiculos.id);
     }
 
     return result;

@@ -5,12 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { BloqueObleas } from './entities/bloque-obleas.entity';
-import { Oblea } from '../obleas/entities/oblea.entity';
-import { Planta } from '../plantas/entities/planta.entity';
-import { Camara } from '../camaras/entities/camara.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateBloqueDto } from './dto/create-bloque.dto';
 import { UpdateBloqueDto } from './dto/update-bloque.dto';
 import { EstadoBloque, EstadoOblea } from '../common/enums';
@@ -18,16 +13,7 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class BloquesService {
-  constructor(
-    @InjectRepository(BloqueObleas)
-    private bloquesRepository: Repository<BloqueObleas>,
-    @InjectRepository(Oblea)
-    private obleasRepository: Repository<Oblea>,
-    @InjectRepository(Planta)
-    private plantasRepository: Repository<Planta>,
-    @InjectRepository(Camara)
-    private camarasRepository: Repository<Camara>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Genera el código QR para una oblea
@@ -41,25 +27,24 @@ export class BloquesService {
     // Firma digital para evitar falsificaciones
     const signature = crypto
       .createHash('sha256')
-      .update(`${numero}-${bloqueId}-${process.env.QR_SECRET || 'default-secret'}`)
+      .update(
+        `${numero}-${bloqueId}-${process.env.QR_SECRET || 'default-secret'}`,
+      )
       .digest('hex')
       .substring(0, 16);
-    
+
     const codigo = `OBL-${numero}-${signature}`;
-    
+
     // 🌐 URL completa de verificación
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     return `${frontendUrl}/verificar/${codigo}`;
   }
 
-  async create(
-    createBloqueDto: CreateBloqueDto,
-    camaraId: number,
-  ): Promise<BloqueObleas> {
+  async create(createBloqueDto: CreateBloqueDto, camaraId: number) {
     const { cantidad, plantaId } = createBloqueDto;
 
     // Verificar que la cámara exista y obtener su código
-    const camara = await this.camarasRepository.findOne({
+    const camara = await this.prisma.camaras.findUnique({
       where: { id: camaraId },
     });
     if (!camara) {
@@ -67,9 +52,9 @@ export class BloquesService {
     }
 
     // Obtener el último bloque de esta cámara para generar el código
-    const lastBloque = await this.bloquesRepository.findOne({
+    const lastBloque = await this.prisma.bloques_obleas.findFirst({
       where: { camaraId },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
 
     // Generar el código automáticamente
@@ -84,9 +69,9 @@ export class BloquesService {
 
     const year = new Date().getFullYear();
     const codigo = `BLQ-${camara.codigo}-${year}-${numeroConsecutivo.toString().padStart(3, '0')}`;
-    
+
     // Verificar que el código generado no exista (por seguridad)
-    const existingBloque = await this.bloquesRepository.findOne({
+    const existingBloque = await this.prisma.bloques_obleas.findUnique({
       where: { codigo },
     });
     if (existingBloque) {
@@ -97,9 +82,9 @@ export class BloquesService {
 
     // Calcular el rango de números automáticamente
     // Buscar el último número usado en esta cámara
-    const lastBloqueWithNumbers = await this.bloquesRepository.findOne({
+    const lastBloqueWithNumbers = await this.prisma.bloques_obleas.findFirst({
       where: { camaraId },
-      order: { numeroFin: 'DESC' },
+      orderBy: { numeroFin: 'desc' },
     });
 
     let numeroInicio: number;
@@ -120,9 +105,9 @@ export class BloquesService {
     }
 
     // Si se especifica plantaId, verificar que exista Y pertenezca a la misma cámara
-    let planta: Planta | null = null;
+    let planta: any = null;
     if (plantaId) {
-      planta = await this.plantasRepository.findOne({
+      planta = await this.prisma.plantas.findFirst({
         where: { id: plantaId, camaraId },
       });
       if (!planta) {
@@ -133,49 +118,52 @@ export class BloquesService {
     }
 
     // Crear el bloque
-    const bloque = this.bloquesRepository.create({
-      codigo,
-      numeroInicio,
-      numeroFin,
-      cantidadTotal: cantidad,
-      estado: plantaId ? EstadoBloque.ASIGNADO : EstadoBloque.CREADO,
-      camara,
-      planta: planta || undefined,
+    const bloque = await this.prisma.bloques_obleas.create({
+      data: {
+        codigo,
+        numeroInicio,
+        numeroFin,
+        cantidadTotal: cantidad,
+        estado: plantaId ? EstadoBloque.ASIGNADO : EstadoBloque.CREADO,
+        camaraId,
+        plantaId: planta?.id || null,
+      },
     });
 
-    const savedBloque = await this.bloquesRepository.save(bloque);
-
     // 🎯 Crear obleas con QR generado automáticamente
-    const obleas: Partial<Oblea>[] = [];
+    const obleas: any[] = [];
     for (let i = numeroInicio; i <= numeroFin; i++) {
-      const codigoQr = this.generateQRCode(i, savedBloque.id);
+      const codigoQr = this.generateQRCode(i, bloque.id);
       obleas.push({
         numero: i,
-        codigoQr,  // ✨ QR generado
-        qrActivo: false,  // ✨ QR inactivo por defecto
+        codigoQr, // ✨ QR generado
+        qrActivo: false, // ✨ QR inactivo por defecto
         estado: EstadoOblea.DISPONIBLE,
         camaraId: camaraId,
-        bloque: savedBloque,
+        bloqueId: bloque.id,
       });
     }
 
-    await this.obleasRepository.save(obleas as Oblea[]);
+    await this.prisma.obleas.createMany({ data: obleas });
 
-    return this.findOne(savedBloque.id, camaraId);
+    return this.findOne(bloque.id, camaraId);
   }
 
-  async findAll(camaraId: number): Promise<BloqueObleas[]> {
-    return this.bloquesRepository.find({
+  async findAll(camaraId: number) {
+    return this.prisma.bloques_obleas.findMany({
       where: { camaraId },
-      relations: ['planta', 'obleas'],
-      order: { createdAt: 'DESC' },
+      include: { plantas: true, obleas: true },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(id: number, camaraId: number): Promise<BloqueObleas> {
-    const bloque = await this.bloquesRepository.findOne({
+  async findOne(id: number, camaraId: number) {
+    const bloque = await this.prisma.bloques_obleas.findFirst({
       where: { id, camaraId },
-      relations: ['planta', 'planta.municipio', 'obleas'],
+      include: {
+        plantas: { include: { municipios: true } },
+        obleas: true,
+      },
     });
 
     if (!bloque) {
@@ -187,12 +175,9 @@ export class BloquesService {
     return bloque;
   }
 
-  async findByPlanta(
-    plantaId: number,
-    camaraId: number,
-  ): Promise<BloqueObleas[]> {
+  async findByPlanta(plantaId: number, camaraId: number) {
     // Verificar que la planta pertenezca a la cámara
-    const planta = await this.plantasRepository.findOne({
+    const planta = await this.prisma.plantas.findFirst({
       where: { id: plantaId, camaraId },
     });
     if (!planta) {
@@ -201,26 +186,24 @@ export class BloquesService {
       );
     }
 
-    return this.bloquesRepository.find({
-      where: { planta: { id: plantaId }, camaraId },
-      relations: ['planta', 'obleas'],
-      order: { createdAt: 'DESC' },
+    return this.prisma.bloques_obleas.findMany({
+      where: { plantaId, camaraId },
+      include: { plantas: true, obleas: true },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async update(
-    id: number,
-    updateBloqueDto: UpdateBloqueDto,
-    camaraId: number,
-  ): Promise<BloqueObleas> {
+  async update(id: number, updateBloqueDto: UpdateBloqueDto, camaraId: number) {
     const bloque = await this.findOne(id, camaraId);
 
     // Solo permitir cambiar la planta asignada y el estado
     // No se pueden modificar rangos ni cantidades después de crear el bloque
 
+    const updateData: any = {};
+
     // Si se cambia la planta, verificar que pertenezca a la misma cámara
     if (updateBloqueDto.plantaId) {
-      const planta = await this.plantasRepository.findOne({
+      const planta = await this.prisma.plantas.findFirst({
         where: { id: updateBloqueDto.plantaId, camaraId },
       });
       if (!planta) {
@@ -228,22 +211,21 @@ export class BloquesService {
           `Planta con ID ${updateBloqueDto.plantaId} no encontrada o no pertenece a su cámara`,
         );
       }
-      bloque.planta = planta;
-      bloque.estado = EstadoBloque.ASIGNADO;
+      updateData.plantaId = updateBloqueDto.plantaId;
+      updateData.estado = EstadoBloque.ASIGNADO;
     }
 
     if (updateBloqueDto.estado) {
-      bloque.estado = updateBloqueDto.estado;
+      updateData.estado = updateBloqueDto.estado;
     }
 
-    return this.bloquesRepository.save(bloque);
+    return this.prisma.bloques_obleas.update({
+      where: { id },
+      data: updateData,
+    });
   }
 
-  async asignarPlanta(
-    id: number,
-    plantaId: number,
-    camaraId: number,
-  ): Promise<BloqueObleas> {
+  async asignarPlanta(id: number, plantaId: number, camaraId: number) {
     const bloque = await this.findOne(id, camaraId);
 
     // Verificar que el bloque esté en estado CREADO
@@ -254,7 +236,7 @@ export class BloquesService {
     }
 
     // Verificar que la planta exista y pertenezca a la misma cámara
-    const planta = await this.plantasRepository.findOne({
+    const planta = await this.prisma.plantas.findFirst({
       where: { id: plantaId, camaraId },
     });
     if (!planta) {
@@ -264,19 +246,22 @@ export class BloquesService {
     }
 
     // Asignar planta y cambiar estado
-    bloque.planta = planta;
-    bloque.estado = EstadoBloque.ASIGNADO;
-
-    return this.bloquesRepository.save(bloque);
+    return this.prisma.bloques_obleas.update({
+      where: { id },
+      data: {
+        plantaId,
+        estado: EstadoBloque.ASIGNADO,
+      },
+    });
   }
 
   async remove(id: number, camaraId: number): Promise<void> {
     const bloque = await this.findOne(id, camaraId);
 
     // No permitir eliminar si tiene obleas asignadas
-    const obleasAsignadas = await this.obleasRepository.count({
+    const obleasAsignadas = await this.prisma.obleas.count({
       where: {
-        bloque: { id },
+        bloqueId: id,
         estado: EstadoOblea.ASIGNADA,
       },
     });
@@ -288,44 +273,48 @@ export class BloquesService {
     }
 
     // Eliminar obleas asociadas primero
-    await this.obleasRepository.delete({ bloque: { id } });
+    await this.prisma.obleas.deleteMany({ where: { bloqueId: id } });
 
     // Eliminar bloque
-    await this.bloquesRepository.remove(bloque);
+    await this.prisma.bloques_obleas.delete({ where: { id } });
   }
 
   async getEstadisticas(camaraId: number) {
-    const totalBloques = await this.bloquesRepository.count({
+    const totalBloques = await this.prisma.bloques_obleas.count({
       where: { camaraId },
     });
-    const bloquesPorEstado = await this.bloquesRepository
-      .createQueryBuilder('bloque')
-      .select('bloque.estado', 'estado')
-      .addSelect('COUNT(*)', 'cantidad')
-      .where('bloque.camaraId = :camaraId', { camaraId })
-      .groupBy('bloque.estado')
-      .getRawMany();
+
+    const bloquesPorEstado = await this.prisma.bloques_obleas.groupBy({
+      by: ['estado'],
+      where: { camaraId },
+      _count: true,
+    });
 
     // Para obleas, filtrar solo las que pertenezcan a bloques de la cámara
-    const totalObleas = await this.obleasRepository
-      .createQueryBuilder('oblea')
-      .innerJoin('oblea.bloque', 'bloque')
-      .where('bloque.camaraId = :camaraId', { camaraId })
-      .getCount();
+    const obleasData = await this.prisma.obleas.findMany({
+      where: { bloques_obleas: { camaraId } },
+      select: { estado: true },
+    });
 
-    const obleasPorEstado = await this.obleasRepository
-      .createQueryBuilder('oblea')
-      .innerJoin('oblea.bloque', 'bloque')
-      .select('oblea.estado', 'estado')
-      .addSelect('COUNT(*)', 'cantidad')
-      .where('bloque.camaraId = :camaraId', { camaraId })
-      .groupBy('oblea.estado')
-      .getRawMany();
+    const totalObleas = obleasData.length;
+
+    const obleasPorEstado = obleasData.reduce((acc: any[], oblea) => {
+      const existing = acc.find((item) => item.estado === oblea.estado);
+      if (existing) {
+        existing.cantidad = String(Number(existing.cantidad) + 1);
+      } else {
+        acc.push({ estado: oblea.estado, cantidad: '1' });
+      }
+      return acc;
+    }, []);
 
     return {
       bloques: {
         total: totalBloques,
-        porEstado: bloquesPorEstado,
+        porEstado: bloquesPorEstado.map((item) => ({
+          estado: item.estado,
+          cantidad: String(item._count),
+        })),
       },
       obleas: {
         total: totalObleas,
@@ -340,19 +329,19 @@ export class BloquesService {
    */
   async generarCSV(id: number, camaraId: number): Promise<string> {
     const bloque = await this.findOne(id, camaraId);
-    
+
     if (!bloque.obleas || bloque.obleas.length === 0) {
       throw new NotFoundException('El bloque no tiene obleas asociadas');
     }
 
     // Header del CSV
     let csv = 'Numero,CodigoQR,Estado,QRActivo,Bloque,FechaCreacion\n';
-    
+
     // Datos
     for (const oblea of bloque.obleas) {
       csv += `${oblea.numero},${oblea.codigoQr},${oblea.estado},${oblea.qrActivo ? 'SI' : 'NO'},${bloque.codigo},${oblea.createdAt.toISOString()}\n`;
     }
-    
+
     return csv;
   }
 }
