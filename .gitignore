@@ -57,3 +57,21 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /uploads
 
 /generated/prisma
+
+# Archivos de backup y temporales
+*.bak
+*.backup
+*.bak2
+*.old
+*.tmp
+*.swp
+*~
+
+# Scripts SQL de backup
+scripts/sql-backups/
+
+# Entidades TypeORM legacy (usamos Prisma)
+src/**/*.entity.ts
+!src/**/dto/*.ts
+src/database/migrations/
+src/database/ormconfig.ts
