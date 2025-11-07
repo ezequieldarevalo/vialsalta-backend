@@ -93,11 +93,11 @@ async function main() {
 
   // Usuario CAMARA (superadmin)
   const userCamara = await prisma.users.upsert({
-    where: { email: 'admin@camarasalta.org.ar' },
+    where: { email: 'admin@camarasalta.gob.ar' },
     update: {},
     create: {
       username: 'admin_camara',
-      email: 'admin@camarasalta.org.ar',
+      email: 'admin@camarasalta.gob.ar',
       password: hashedPassword,
       role: 'CAMARA',
       camaraId: camara.id,
@@ -108,11 +108,11 @@ async function main() {
 
   // Usuario PLANTA_ADMIN
   const userPlantaAdmin = await prisma.users.upsert({
-    where: { email: 'admin@rtvsaltanorte.com.ar' },
+    where: { email: 'admin.salta.centro@vtvsalta.com.ar' },
     update: {},
     create: {
       username: 'admin_planta',
-      email: 'admin@rtvsaltanorte.com.ar',
+      email: 'admin.salta.centro@vtvsalta.com.ar',
       password: hashedPassword,
       role: 'PLANTA_ADMIN',
       plantaId: planta.id,
@@ -123,11 +123,11 @@ async function main() {
 
   // Usuario PLANTA_OPERADOR
   const userPlantaOperador = await prisma.users.upsert({
-    where: { email: 'operador@rtvsaltanorte.com.ar' },
+    where: { email: 'operador.salta.centro@vtvsalta.com.ar' },
     update: {},
     create: {
       username: 'operador_planta',
-      email: 'operador@rtvsaltanorte.com.ar',
+      email: 'operador.salta.centro@vtvsalta.com.ar',
       password: hashedPassword,
       role: 'PLANTA_OPERADOR',
       plantaId: planta.id,
@@ -138,11 +138,11 @@ async function main() {
 
   // Usuario MUNICIPIO
   const userMunicipio = await prisma.users.upsert({
-    where: { email: 'transito@municipalidadsalta.gob.ar' },
+    where: { email: 'fiscal@saltacapital.gob.ar' },
     update: {},
     create: {
       username: 'admin_municipio',
-      email: 'transito@municipalidadsalta.gob.ar',
+      email: 'fiscal@saltacapital.gob.ar',
       password: hashedPassword,
       role: 'MUNICIPIO',
       municipioId: municipioCapital.id,
@@ -156,16 +156,16 @@ async function main() {
   console.log('========================');
   console.log('🔐 Contraseña para todos: Password123!\n');
   console.log('👤 CAMARA (Superadmin):');
-  console.log('   Email: admin@camarasalta.org.ar');
+  console.log('   Email: admin@camarasalta.gob.ar');
   console.log('   Rol: Administrador de la Cámara\n');
   console.log('👤 PLANTA_ADMIN:');
-  console.log('   Email: admin@rtvsaltanorte.com.ar');
+  console.log('   Email: admin.salta.centro@vtvsalta.com.ar');
   console.log('   Rol: Administrador de Planta\n');
   console.log('👤 PLANTA_OPERADOR:');
-  console.log('   Email: operador@rtvsaltanorte.com.ar');
+  console.log('   Email: operador.salta.centro@vtvsalta.com.ar');
   console.log('   Rol: Operador de Planta\n');
   console.log('👤 MUNICIPIO:');
-  console.log('   Email: transito@municipalidadsalta.gob.ar');
+  console.log('   Email: fiscal@saltacapital.gob.ar');
   console.log('   Rol: Administrador Municipal\n');
 }
 
