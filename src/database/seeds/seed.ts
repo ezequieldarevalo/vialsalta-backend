@@ -72,16 +72,16 @@ async function main() {
 
   // 4. Crear Tipos de Vehículo
   const tiposVehiculo = [
-    { codigo: 'AUTO', nombre: 'Automóvil', descripcion: 'Vehículo particular de hasta 9 pasajeros' },
-    { codigo: 'MOTO', nombre: 'Motocicleta', descripcion: 'Vehículo de 2 o 3 ruedas' },
-    { codigo: 'CAMIONETA', nombre: 'Camioneta', descripcion: 'Pick-up o utilitario' },
-    { codigo: 'CAMION', nombre: 'Camión', descripcion: 'Vehículo de carga pesada' },
-    { codigo: 'COLECTIVO', nombre: 'Colectivo', descripcion: 'Transporte público de pasajeros' },
+    { nombre: 'Automóvil', descripcion: 'Vehículo particular de hasta 9 pasajeros' },
+    { nombre: 'Motocicleta', descripcion: 'Vehículo de 2 o 3 ruedas' },
+    { nombre: 'Camioneta', descripcion: 'Pick-up o utilitario' },
+    { nombre: 'Camión', descripcion: 'Vehículo de carga pesada' },
+    { nombre: 'Colectivo', descripcion: 'Transporte público de pasajeros' },
   ];
 
   for (const tipo of tiposVehiculo) {
     await prisma.tipos_vehiculo.upsert({
-      where: { codigo: tipo.codigo },
+      where: { nombre: tipo.nombre },
       update: {},
       create: tipo,
     });
@@ -101,7 +101,7 @@ async function main() {
       password: hashedPassword,
       role: 'CAMARA',
       camaraId: camara.id,
-      isActive: true,
+      activo: true,
     },
   });
   console.log('✅ Usuario CAMARA creado:', userCamara.email);
@@ -116,7 +116,7 @@ async function main() {
       password: hashedPassword,
       role: 'PLANTA_ADMIN',
       plantaId: planta.id,
-      isActive: true,
+      activo: true,
     },
   });
   console.log('✅ Usuario PLANTA_ADMIN creado:', userPlantaAdmin.email);
@@ -131,7 +131,7 @@ async function main() {
       password: hashedPassword,
       role: 'PLANTA_OPERADOR',
       plantaId: planta.id,
-      isActive: true,
+      activo: true,
     },
   });
   console.log('✅ Usuario PLANTA_OPERADOR creado:', userPlantaOperador.email);
@@ -146,7 +146,7 @@ async function main() {
       password: hashedPassword,
       role: 'MUNICIPIO',
       municipioId: municipioCapital.id,
-      isActive: true,
+      activo: true,
     },
   });
   console.log('✅ Usuario MUNICIPIO creado:', userMunicipio.email);
