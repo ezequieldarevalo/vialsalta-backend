@@ -9,7 +9,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import compression from 'compression';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
-import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
+// import { SentryExceptionFilter } from './common/filters/sentry-exception.filter'; // Comentado - Sentry no instalado
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -37,13 +37,15 @@ async function bootstrap() {
   // Compression para reducir tamaño de responses
   app.use(compression());
 
-  // Sentry Exception Filter (solo si está configurado)
-  if (config.get('SENTRY_DSN') && config.get('NODE_ENV') !== 'development') {
-    app.useGlobalFilters(new SentryExceptionFilter());
-  } else {
-    // Global Exception Filter
-    app.useGlobalFilters(new AllExceptionsFilter());
-  }
+  // Global Exception Filter
+  app.useGlobalFilters(new AllExceptionsFilter());
+
+  // Sentry Exception Filter (solo si está configurado) - COMENTADO: Sentry no instalado
+  // if (config.get('SENTRY_DSN') && config.get('NODE_ENV') !== 'development') {
+  //   app.useGlobalFilters(new SentryExceptionFilter());
+  // } else {
+  //   app.useGlobalFilters(new AllExceptionsFilter());
+  // }
 
   // Servir archivos estáticos (uploads) en desarrollo
   const uploadDir = join(process.cwd(), 'uploads');

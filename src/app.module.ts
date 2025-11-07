@@ -30,13 +30,13 @@ import { HealthModule } from './health/health.module';
 import { EmailModule } from './common/services/email.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheConfigModule } from './cache/cache.module';
-import { SentryModule } from './sentry/sentry.module';
+// import { SentryModule } from './sentry/sentry.module'; // Comentado - Sentry no instalado
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Sentry - Error monitoring
-    SentryModule,
+    // Sentry - Error monitoring (COMENTADO: Sentry no instalado)
+    // SentryModule,
     // Redis Cache - Performance optimization
     CacheConfigModule,
     // Logging profesional con Winston
