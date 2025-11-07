@@ -89,7 +89,7 @@ async function main() {
   console.log('✅ Tipos de vehículo creados:', tiposVehiculo.length);
 
   // 5. Crear Usuarios
-  const hashedPassword = await bcrypt.hash('Demo2024!', 10);
+  const hashedPassword = await bcrypt.hash('Password123!', 10);
 
   // Usuario CAMARA (superadmin)
   const userCamara = await prisma.users.upsert({
@@ -154,7 +154,7 @@ async function main() {
   console.log('\n✨ Seed completado exitosamente!\n');
   console.log('📋 CREDENCIALES DE DEMO:');
   console.log('========================');
-  console.log('🔐 Contraseña para todos: Demo2024!\n');
+  console.log('🔐 Contraseña para todos: Password123!\n');
   console.log('👤 CAMARA (Superadmin):');
   console.log('   Email: admin@camarasalta.org.ar');
   console.log('   Rol: Administrador de la Cámara\n');
