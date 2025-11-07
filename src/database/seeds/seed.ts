@@ -7,7 +7,7 @@ async function main() {
   console.log('🌱 Iniciando seed de la base de datos...');
 
   // 1. Crear Cámara
-  const camara = await prisma.camara.upsert({
+  const camara = await prisma.camaras.upsert({
     where: { codigo: 'CAM-SALTA-001' },
     update: {},
     create: {
@@ -26,7 +26,7 @@ async function main() {
   console.log('✅ Cámara creada:', camara.nombre);
 
   // 2. Crear Municipios
-  const municipioCapital = await prisma.municipio.upsert({
+  const municipioCapital = await prisma.municipios.upsert({
     where: { codigo: 'MUN-CAPITAL' },
     update: {},
     create: {
@@ -39,7 +39,7 @@ async function main() {
   });
   console.log('✅ Municipio creado:', municipioCapital.nombre);
 
-  const municipioCerrillos = await prisma.municipio.upsert({
+  const municipioCerrillos = await prisma.municipios.upsert({
     where: { codigo: 'MUN-CERRILLOS' },
     update: {},
     create: {
@@ -53,7 +53,7 @@ async function main() {
   console.log('✅ Municipio creado:', municipioCerrillos.nombre);
 
   // 3. Crear Planta
-  const planta = await prisma.planta.upsert({
+  const planta = await prisma.plantas.upsert({
     where: { codigoHabilitacion: 'PLT-001' },
     update: {},
     create: {
@@ -80,7 +80,7 @@ async function main() {
   ];
 
   for (const tipo of tiposVehiculo) {
-    await prisma.tipoVehiculo.upsert({
+    await prisma.tipos_vehiculo.upsert({
       where: { codigo: tipo.codigo },
       update: {},
       create: tipo,
@@ -92,7 +92,7 @@ async function main() {
   const hashedPassword = await bcrypt.hash('Demo2024!', 10);
 
   // Usuario CAMARA (superadmin)
-  const userCamara = await prisma.user.upsert({
+  const userCamara = await prisma.users.upsert({
     where: { email: 'admin@camarasalta.org.ar' },
     update: {},
     create: {
@@ -107,7 +107,7 @@ async function main() {
   console.log('✅ Usuario CAMARA creado:', userCamara.email);
 
   // Usuario PLANTA_ADMIN
-  const userPlantaAdmin = await prisma.user.upsert({
+  const userPlantaAdmin = await prisma.users.upsert({
     where: { email: 'admin@rtvsaltanorte.com.ar' },
     update: {},
     create: {
@@ -122,7 +122,7 @@ async function main() {
   console.log('✅ Usuario PLANTA_ADMIN creado:', userPlantaAdmin.email);
 
   // Usuario PLANTA_OPERADOR
-  const userPlantaOperador = await prisma.user.upsert({
+  const userPlantaOperador = await prisma.users.upsert({
     where: { email: 'operador@rtvsaltanorte.com.ar' },
     update: {},
     create: {
@@ -137,7 +137,7 @@ async function main() {
   console.log('✅ Usuario PLANTA_OPERADOR creado:', userPlantaOperador.email);
 
   // Usuario MUNICIPIO
-  const userMunicipio = await prisma.user.upsert({
+  const userMunicipio = await prisma.users.upsert({
     where: { email: 'transito@municipalidadsalta.gob.ar' },
     update: {},
     create: {
