@@ -8,12 +8,12 @@ async function main() {
 
   // 1. Crear Cámara
   const camara = await prisma.camaras.upsert({
-    where: { codigo: 'CAM-SALTA-001' },
+    where: { codigo: 'CAM-SLT01' },
     update: {},
     create: {
       nombre: 'Cámara de Talleres de Salta',
       provincia: 'Salta',
-      codigo: 'CAM-SALTA-001',
+      codigo: 'CAM-SLT01',
       rangoInicio: 1000000,
       rangoFin: 9999999,
       cuit: '30-12345678-9',
@@ -27,12 +27,12 @@ async function main() {
 
   // 2. Crear Municipios
   const municipioCapital = await prisma.municipios.upsert({
-    where: { codigo: 'MUN-CAPITAL' },
+    where: { codigo: 'MUN-CAP' },
     update: {},
     create: {
       camaraId: camara.id,
       nombre: 'Municipalidad de Salta',
-      codigo: 'MUN-CAPITAL',
+      codigo: 'MUN-CAP',
       porcentajeReparto: 40.0,
       activo: true,
     },
@@ -40,12 +40,12 @@ async function main() {
   console.log('✅ Municipio creado:', municipioCapital.nombre);
 
   const municipioCerrillos = await prisma.municipios.upsert({
-    where: { codigo: 'MUN-CERRILLOS' },
+    where: { codigo: 'MUN-CER' },
     update: {},
     create: {
       camaraId: camara.id,
       nombre: 'Municipalidad de Cerrillos',
-      codigo: 'MUN-CERRILLOS',
+      codigo: 'MUN-CER',
       porcentajeReparto: 30.0,
       activo: true,
     },
